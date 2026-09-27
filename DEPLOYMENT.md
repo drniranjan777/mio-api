@@ -63,7 +63,7 @@ timedatectl set-timezone Asia/Kolkata
 # A normal user for deployments (you log in as this from now on)
 adduser deploy                       # choose a strong password
 usermod -aG sudo deploy
-rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy   # copies your SSH key
+rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy   # copies your SSH key (skip if you log in with a password)
 
 # Firewall: only SSH + web
 ufw allow OpenSSH
@@ -79,10 +79,13 @@ systemctl enable --now fail2ban
 
 ```bash
 sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/; s/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sudo systemctl restart ssh
+# Ubuntu images on Hostinger ship a cloud-init file that re-enables passwords — neutralise it:
+sudo sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true
+sudo sshd -t && sudo systemctl restart ssh
+sudo sshd -T | grep -E '^(permitrootlogin|passwordauthentication)'   # both must say "no"
 ```
 
-(Skip the `PasswordAuthentication no` part if you did not set up an SSH key.)
+(Skip the `PasswordAuthentication no` parts if you did not set up an SSH key — you would lock yourself out. Hostinger's hPanel *Browser terminal* still works as an emergency console.)
 
 ## Step 4 — Install Node.js 24, Nginx, PM2 and Certbot
 
