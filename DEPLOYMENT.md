@@ -111,29 +111,7 @@ sudo apt update && sudo apt -y install mongodb-org
 sudo systemctl enable --now mongod
 ```
 
-Create two database users (replace both passwords — use `openssl rand -hex 24` to generate them, and keep them safe):
-
-```bash
-mongosh --quiet <<'JS'
-use admin
-db.createUser({ user: "mongoAdmin", pwd: "REPLACE_ADMIN_PASSWORD", roles: ["root"] })
-use mio_doctors
-db.createUser({ user: "mio_app", pwd: "REPLACE_APP_PASSWORD", roles: [{ role: "readWrite", db: "mio_doctors" }] })
-JS
-```
-
-Turn on authentication (MongoDB already listens on `127.0.0.1` only):
-
-```bash
-sudo tee -a /etc/mongod.conf >/dev/null <<'EOF'
-security:
-  authorization: enabled
-EOF
-sudo systemctl restart mongod
-mongosh "mongodb://mio_app:REPLACE_APP_PASSWORD@127.0.0.1:27017/mio_doctors?authSource=mio_doctors" --eval 'db.runCommand({ping:1})'
-```
-
-The last command must print `{ ok: 1 }`.
+The database users and password are created in **step 7** from your `.env` (after the code is on the server) — nothing to type here.
 
 ## Step 6 — Get the code from GitHub (read-only deploy keys)
 
@@ -185,9 +163,17 @@ nano .env
 
 In `.env` fill in:
 
-- `MONGODB_URI` → the `mio_app` password from step 5
 - `JWT_ACCESS_SECRET`, `OTP_PEPPER` → the two random values
 - `SEED_ADMIN_EMAIL` → your admin email; `SEED_ADMIN_PASSWORD` → **at least 12 characters** (production rule)
+- `MONGODB_URI` → leave `CHANGE_ME` as is (a strong password is generated next), or put your own `mio_app` password there (letters and digits only)
+
+Create the database users and switch on MongoDB authentication — the passwords come from `.env`, nothing is shown on screen:
+
+```bash
+bash deploy/setup-mongo-users.sh
+```
+
+It prints `Authentication is on and the API can connect…`. The MongoDB super-user (`mongoAdmin`) password is saved in `/root/mongo-admin-password.txt` (`sudo cat` it only if you need it).
 
 Install, build and start everything:
 
