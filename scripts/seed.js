@@ -10,16 +10,21 @@ import { connectDb, disconnectDb } from '../src/config/db.js';
 import { env } from '../src/config/env.js';
 import { ensureSystemRoles } from '../src/modules/staff/adminAccess.js';
 import { seedCatalog } from './catalog.js';
+import { makePng } from './lib/png.js';
+import { runMigrations } from './migrate.js';
 import { checkAdminPassword } from './password-policy.js';
 import { ReceptionistAccess } from '../src/modules/access/receptionistAccess.model.js';
 import { Appointment } from '../src/modules/appointments/appointment.model.js';
+import { Banner } from '../src/modules/banners/banner.model.js';
 import { Wish } from '../src/modules/birthdays/wish.model.js';
 import { occurrence, parseDob } from '../src/modules/birthdays/birthday.js';
 import { Conference } from '../src/modules/conferences/conference.models.js';
+import { Location } from '../src/modules/locations/location.model.js';
 import { McLEntry } from '../src/modules/mcl/mcl.model.js';
 import { buildSlots, localParts } from '../src/modules/appointments/schedule.js';
 import { DoctorProfile, MrProfile, ReceptionistProfile } from '../src/modules/profiles/profile.models.js';
 import { nextCode } from '../src/modules/users/counter.model.js';
+import { saveImage } from '../src/modules/uploads/storage.service.js';
 import { User } from '../src/modules/users/user.model.js';
 
 const demo = process.argv.includes('--demo');
@@ -130,6 +135,7 @@ async function seedDemo() {
   }
 
   await seedPhase2({ rahul, priyaM, arjun, mr });
+  await seedBanners(rahul);
 
   console.log(`• Demo data ready
     Doctor        9000000001  Dr. Rahul Sharma  (manual approval)
@@ -188,9 +194,25 @@ async function seedPhase2({ rahul, priyaM, arjun, mr }) {
   }
 }
 
+/** The three location scenarios from the banner spec, with generated artwork. */
+async function seedBanners(createdBy) {
+  if (await Banner.exists({})) return;
+  const byName = async (name, type) => (await Location.findOne({ name, type }).lean())?._id;
+  const demo = [
+    ['Telangana CME Conference', 'Earn CME credits — register now', 'state', [await byName('Telangana', 'state')], [11, 94, 160], [32, 157, 120], 1],
+    ['Bengaluru Medical Event', 'Meet 200+ specialists this month', 'city', [await byName('Bengaluru', 'city')], [111, 66, 193], [214, 51, 132], 1],
+    ['Mio Doctors Announcement', 'New: Excel reports and conference plans', 'all', [], [8, 100, 172], [95, 168, 232], 5],
+  ];
+  for (const [title, description, targeting, locations, from, to, priority] of demo) {
+    const image = await saveImage(makePng(1080, 490, from, to), 'banner');
+    await Banner.create({ title, description, imageKey: image.key, showText: true, targeting, locations, status: 'active', priority, createdBy: createdBy._id });
+  }
+}
+
 await connectDb(env.MONGODB_URI);
 try {
   await seedAdmin();
+  await runMigrations('up');
   await seedCatalog();
   await ensureSystemRoles();
   console.log('• Catalogue ready (plans, FAQs, terms pages, admin roles)');

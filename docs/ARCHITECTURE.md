@@ -273,6 +273,20 @@ switched from `SampleData` to repositories with loading / error / empty states.
     other admin call. Help desk requests carry `assignedTo` (bulk assign supported).
     Admins can pre-register doctors/MRs/receptionists (`POST /admin/users`).
 15. **Doctor CSV import:** `POST /admin/users/import/doctors?commit=false|true` (text/csv, 2 MB, 1,000 rows) — preview then commit, per-row errors, duplicates checked in file and DB; template at `GET /admin/users/import/doctors/template` and `docs/samples/doctors_import_template.csv`.
+16. **Location-based banners:** `locations` (country → state → city, aliases, status) and
+    `banners` (title, description, image keys, showText, redirect none/internal/external,
+    targeting all/state/city/multiple + location ids, status draft/active/inactive,
+    start/end local days, priority 1 = highest). *Scheduled* and *Expired* are derived from
+    the dates, never stored. Doctor feed `GET /doctors/me/banners` resolves the doctor's saved
+    `practice.state` / `practice.city` (district as fallback) to location ids by name/alias —
+    a city implies its state; ambiguous or unknown names match nothing — then one indexed
+    query returns live banners for those ids plus global ones. Order: city-specific → state
+    → global, then priority, then newest. The app cannot pass a location. Admin:
+    `/admin/banners` (CRUD, `PATCH /:id/status`, `GET /options`), `/admin/locations` (CRUD,
+    delete only when unused), `POST /admin/uploads/images?purpose=banner` (raw JPG/PNG/WEBP,
+    ≤2 MB, ≥720×300, ratio 1.6–3.2, type sniffed from bytes). Files live in `UPLOADS_DIR`,
+    served at `/uploads/…`; the DB stores keys only, URLs come from `PUBLIC_BASE_URL`.
+    Section permission: `banners`. Migrations: `npm run migrate` / `migrate:down`.
 14. **Exports:** reports download as `.xlsx` (exceljs; text cells, never formulas) or CSV.
 12. **App Settings:** notification/language preferences are stored per user; the
     notification switch will control push delivery once FCM exists, and the app

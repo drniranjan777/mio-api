@@ -13,6 +13,7 @@ export const ADMIN_PERMISSIONS = Object.freeze([
   'access',
   'appointments',
   'conferences',
+  'banners',
   'billing',
   'tickets',
   'faqs',
@@ -44,6 +45,6 @@ export const SUPER_ADMIN_ROLE = 'Super Admin';
 /** Starter roles created once, editable afterwards. */
 export const TEMPLATE_ROLES = [
   { name: 'Support', description: 'Help desk, FAQs and policies', permissions: ['dashboard', 'tickets', 'faqs', 'content'] },
-  { name: 'Operations', description: 'Users, access, appointments and conferences', permissions: ['dashboard', 'users', 'access', 'appointments', 'conferences', 'reports'] },
+  { name: 'Operations', description: 'Users, access, appointments and conferences', permissions: ['dashboard', 'users', 'access', 'appointments', 'conferences', 'banners', 'reports'] },
   { name: 'Finance', description: 'Plans, payments and reports', permissions: ['dashboard', 'billing', 'reports'] },
 ];

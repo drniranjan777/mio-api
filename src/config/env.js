@@ -11,6 +11,10 @@ const schema = z
     /** 127.0.0.1 on a server behind Nginx, so the API is never reachable directly. */
     HOST: z.string().default('0.0.0.0'),
     API_PREFIX: z.string().default('/api/v1'),
+    /** Public origin of this API, used to build image URLs (e.g. https://api.miodoctors.com). */
+    PUBLIC_BASE_URL: z.string().url().optional(),
+    /** Where uploaded images are stored (keep outside the code folder on servers). */
+    UPLOADS_DIR: z.string().default('uploads'),
     MONGODB_URI: z.string().min(1),
     JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
     JWT_ACCESS_TTL: z.string().default('15m'),
@@ -50,6 +54,7 @@ function load() {
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
     corsOrigins: env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
+    publicBaseUrl: (env.PUBLIC_BASE_URL ?? `http://localhost:${env.PORT}`).replace(/\/+$/, ''),
   });
 }
 

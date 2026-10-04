@@ -30,3 +30,31 @@ export const text = (max = 200) =>
     .max(max)
     .transform((v) => (v === '' ? undefined : v))
     .optional();
+
+/** Display text: HTML tags and control characters removed, whitespace collapsed. */
+export const plainText = (min, max) =>
+  z
+    .string()
+    .transform((v) =>
+      v
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\p{Cc}/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .pipe(z.string().min(min).max(max));
+
+/** Public https link (no javascript:, data:, http: or credentials). */
+export const httpsUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .url()
+  .refine((v) => {
+    try {
+      const u = new URL(v);
+      return u.protocol === 'https:' && !u.username && !u.password;
+    } catch {
+      return false;
+    }
+  }, 'Use a full https:// link');

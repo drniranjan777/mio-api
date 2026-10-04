@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import os from 'node:os';
+import path from 'node:path';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_ACCESS_SECRET ??= crypto.randomBytes(48).toString('hex');
@@ -6,6 +8,8 @@ process.env.OTP_PEPPER ??= crypto.randomBytes(24).toString('hex');
 process.env.OTP_DEV_MODE = 'true';
 process.env.OTP_RESEND_SECONDS = '0';
 process.env.MONGODB_URI ??= 'mongodb://placeholder';
+// Uploaded test images go to a throwaway folder, never the real uploads/.
+process.env.UPLOADS_DIR ??= path.join(os.tmpdir(), `mio-test-uploads-${process.pid}`);
 
 const { MongoMemoryServer } = await import('mongodb-memory-server');
 const mongoose = (await import('mongoose')).default;
@@ -25,6 +29,9 @@ export async function setup() {
 export async function teardown() {
   await mongoose.disconnect();
   await mongod?.stop();
+  if (path.basename(process.env.UPLOADS_DIR).startsWith('mio-test-uploads-')) {
+    await (await import('node:fs/promises')).rm(process.env.UPLOADS_DIR, { recursive: true, force: true });
+  }
 }
 
 export async function reset() {
@@ -101,6 +108,7 @@ export async function registeredDoctor(opts = {}) {
   const d = await login('doctor');
   const profile = { ...validDoctorProfile(opts.name), ...(opts.specialty && { specialty: opts.specialty }) };
   if (opts.dateOfBirth) profile.dateOfBirth = opts.dateOfBirth;
+  if (opts.practice) profile.practice = { ...profile.practice, ...opts.practice };
   await api().put(`${P}/doctors/me/profile`).set(auth(d.token)).send(profile).expect(200);
   await api().put(`${P}/doctors/me/final`).set(auth(d.token)).send(validDoctorFinal(opts.receptionistMobile)).expect(200);
   if (opts.availability) {

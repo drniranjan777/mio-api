@@ -16,6 +16,10 @@ cd "$APP/backend"
 test -f .env || { echo "Missing $APP/backend/.env (cp deploy/backend.env.production.example .env)"; exit 1; }
 chmod 600 .env
 npm ci --omit=dev --no-audit --no-fund
+mkdir -p "$APP/uploads"
+
+echo "==> Database migrations"
+npm run --silent migrate
 
 echo "==> Admin panel build"
 cd "$APP/admin"

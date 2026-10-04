@@ -142,7 +142,7 @@ cat ~/.ssh/mio_admin.pub    # copy → GitHub mio-admin → Settings → Deploy 
 Then clone:
 
 ```bash
-sudo mkdir -p /var/www/miodoctors /var/log/miodoctors
+sudo mkdir -p /var/www/miodoctors/uploads /var/log/miodoctors
 sudo chown -R deploy:deploy /var/www/miodoctors /var/log/miodoctors
 git clone git@github-mio-api:drniranjan777/mio-api.git     /var/www/miodoctors/backend
 git clone git@github-mio-admin:drniranjan777/mio-admin.git /var/www/miodoctors/admin
@@ -164,6 +164,7 @@ nano .env
 In `.env` fill in:
 
 - `JWT_ACCESS_SECRET`, `OTP_PEPPER` → the two random values
+- `PUBLIC_BASE_URL` (already `https://api.miodoctors.com`) and `UPLOADS_DIR` (`/var/www/miodoctors/uploads`, outside the code so deploys never touch images)
 - `SEED_ADMIN_EMAIL` → your admin email; `SEED_ADMIN_PASSWORD` → **at least 12 characters** (production rule)
 - `MONGODB_URI` → leave `CHANGE_ME` as is (a strong password is generated next), or put your own `mio_app` password there (letters and digits only)
 
@@ -178,7 +179,7 @@ It prints `Authentication is on and the API can connect…`. The MongoDB super-u
 Install, build and start everything:
 
 ```bash
-bash /var/www/miodoctors/backend/deploy/deploy.sh   # pulls, installs deps, builds admin, starts API, health check
+bash /var/www/miodoctors/backend/deploy/deploy.sh   # pulls, installs deps, runs DB migrations, builds admin, starts API, health check
 cd /var/www/miodoctors/backend && npm run seed  # first admin + plans, FAQs, terms, admin roles
 ```
 
@@ -248,7 +249,7 @@ crontab -e     # add this line:
 # 30 2 * * * /var/www/miodoctors/backend/deploy/backup-mongo.sh
 ```
 
-Backups stay 14 days on the server. Also copy them off the server regularly (e.g. download with `scp`, or Hostinger's VPS snapshots in hPanel). Restore: `mongorestore --uri="<MONGODB_URI>" --archive=FILE.gz --gzip --drop`.
+Each run saves the database and the uploaded images (`mio_uploads_*.tar.gz`). Backups stay 14 days on the server. Also copy them off the server regularly (e.g. download with `scp`, or Hostinger's VPS snapshots in hPanel). Restore: `mongorestore --uri="<MONGODB_URI>" --archive=FILE.gz --gzip --drop`.
 
 ---
 
@@ -261,12 +262,13 @@ Backups stay 14 days on the server. Also copy them off the server regularly (e.g
 bash /var/www/miodoctors/backend/deploy/deploy.sh
 ```
 
-It pulls both repositories, installs, rebuilds the admin panel and restarts the API. `.env` and the database are not touched (`.env` is never in Git).
+It pulls both repositories, installs, applies pending database migrations (`npm run migrate`), rebuilds the admin panel and restarts the API. `.env` and your data are kept (`.env` is never in Git; migrations only add or adjust what a release needs).
 
 ## Everyday commands
 
 | Task | Command |
 |---|---|
+| Database migrations | `npm run migrate:status` · `npm run migrate` · roll back the last one: `npm run migrate:down` (in `backend/`) |
 | API status / logs | `pm2 status` · `pm2 logs mio-api --lines 100` |
 | Restart API | `pm2 restart mio-api` |
 | Nginx logs | `sudo tail -f /var/log/nginx/api.miodoctors.error.log` |

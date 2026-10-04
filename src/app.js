@@ -8,6 +8,8 @@ import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { errorHandler, notFound } from './middlewares/errors.js';
 import { apiLimiter } from './middlewares/rateLimits.js';
+import { UPLOAD_ROUTE } from './modules/uploads/storage.service.js';
+import { uploadsStatic } from './modules/uploads/uploads.routes.js';
 import { apiRouter } from './routes.js';
 
 export function createApp() {
@@ -35,6 +37,7 @@ export function createApp() {
     app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url.endsWith('/health') } }));
   }
 
+  app.use(UPLOAD_ROUTE, uploadsStatic());
   app.use(env.API_PREFIX, apiLimiter, apiRouter);
 
   app.use(notFound);
