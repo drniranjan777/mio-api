@@ -26,6 +26,10 @@ export const validate =
     run(params, 'params');
     run(query, 'query');
     run(body, 'body');
-    if (details.length) return next(ApiError.badRequest('Validation failed', details, 'VALIDATION_ERROR'));
+    if (details.length) {
+      // Field paths and messages only, never the submitted values (personal data).
+      req.log?.warn({ validation: details }, 'Validation failed');
+      return next(ApiError.badRequest('Validation failed', details, 'VALIDATION_ERROR'));
+    }
     return next();
   };
