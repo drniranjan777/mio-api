@@ -6,12 +6,43 @@
 import { Plan } from '../src/modules/billing/billing.models.js';
 import { ContentPage, Faq } from '../src/modules/support/support.models.js';
 
-const MR_FEATURES = ['Download Doctors List', 'View Doctor Profiles', 'Book / View Appointments', 'Other App Features'];
+// "Download Doctors List" was removed (UI change list, 11 Oct 2026): the
+// Master MCL can no longer be downloaded by anyone. The client will send the
+// final feature list; admins edit it in the panel.
+export const MR_FEATURES = ['View Doctor Profiles', 'Book / View Appointments', 'Other App Features'];
+export const DOCTOR_FEATURES = ['Manage MR Appointments', 'Receptionist Access', 'Reports', 'Other App Features'];
+
+/**
+ * GST SAC code printed with prices. 998314 = IT design & development
+ * services — confirm with the company's CA and change it in the admin panel
+ * (Billing → plan) if a different code applies.
+ */
+export const DEFAULT_SAC = '998314';
+
+export const MR_TRIAL_STEPS = [
+  'Complete your MR registration',
+  'Tap "Claim 2 Months Free" — no payment or card needed',
+  'Use every MR feature free for 60 days',
+  'Before it ends, choose Monthly or Yearly to continue — the paid time starts after your free days',
+];
 
 export const PLANS = [
-  { code: 'mr-yearly', role: 'mr', name: 'Yearly', period: 'yearly', pricePaise: 20000, mrpPaise: 40000, features: MR_FEATURES, sort: 1 },
-  { code: 'mr-monthly', role: 'mr', name: 'Monthly', period: 'monthly', pricePaise: 2000, mrpPaise: 4000, features: MR_FEATURES, sort: 2 },
-  { code: 'doctor-lifetime-free', role: 'doctor', name: 'Lifetime Free', period: 'lifetime', pricePaise: 0, mrpPaise: 4000, features: MR_FEATURES, sort: 1 },
+  {
+    code: 'mr-free-2-months',
+    role: 'mr',
+    name: '2 Months Free',
+    period: 'trial',
+    durationDays: 60,
+    pricePaise: 0,
+    mrpPaise: 4000,
+    sacCode: DEFAULT_SAC,
+    howToAvail: MR_TRIAL_STEPS,
+    features: MR_FEATURES,
+    sort: 0,
+  },
+  { code: 'mr-yearly', role: 'mr', name: 'Yearly', period: 'yearly', pricePaise: 20000, mrpPaise: 40000, sacCode: DEFAULT_SAC, features: MR_FEATURES, sort: 1 },
+  { code: 'mr-monthly', role: 'mr', name: 'Monthly', period: 'monthly', pricePaise: 2000, mrpPaise: 4000, sacCode: DEFAULT_SAC, features: MR_FEATURES, sort: 2 },
+  { code: 'doctor-lifetime-free', role: 'doctor', name: 'Lifetime Free', period: 'lifetime', pricePaise: 0, mrpPaise: 4000, sacCode: DEFAULT_SAC, features: DOCTOR_FEATURES, sort: 1 },
 ];
 
 export const FAQS = [

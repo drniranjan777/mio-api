@@ -38,8 +38,8 @@ export async function requestOtp({ mobile, role }) {
 }
 
 /** Receptionist "Send Request": sends the OTP when a doctor already granted access. */
-export async function receptionistRequest({ mobile }, req) {
-  const result = await requestAccess(mobile, req);
+export async function receptionistRequest({ mobile, doctorCode, doctorMobile }, req) {
+  const result = await requestAccess(mobile, req, { doctorCode, doctorMobile });
   if (result.status !== 'granted') return result;
   return { ...result, ...(await issueOtp(mobile, purposeFor('receptionist'))) };
 }

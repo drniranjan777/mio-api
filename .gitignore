@@ -6,3 +6,4 @@ coverage/
 .data/
 
 .claude/
+loadtest-report.json

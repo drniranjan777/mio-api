@@ -255,10 +255,21 @@ describe('Reports', () => {
 
     const filters = await get(mr1, '/reports/filters').expect(200);
     assert.equal(filters.body.data.doctors.length, 2);
-    assert.equal(filters.body.data.reports.length, 6);
+    assert.equal(filters.body.data.reports.length, 7);
+    // MRs only see their own visits, so they get no company choice.
+    assert.deepEqual(filters.body.data.companies, []);
+
+    // Visit details carry the doctor's practice details and nothing private.
+    const details = await get(mr1, `/reports/doctor-visits${q}`).expect(200);
+    assert.deepEqual(
+      details.body.data.columns.map((c) => c.key),
+      ['date', 'time', 'doctor', 'specialty', 'clinic', 'city', 'status'],
+    );
+    const text = JSON.stringify(details.body.data.rows);
+    assert.ok(!text.includes(doctor.mobile) && !/dateOfBirth|dateOfMarriage|mobile/i.test(text));
   });
 
-  it('exports CSV with spreadsheet formulas neutralised and validates ranges', async () => {
+  it('exports PDF (no CSV any more) and validates ranges', async () => {
     const doctor = await registeredDoctor();
     await post(doctor, '/appointments', {
       startAt: slot(0),
@@ -266,11 +277,19 @@ describe('Reports', () => {
     }).expect(201);
 
     const q = '?to=' + new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10);
-    const csv = await get(doctor, `/reports/mr-wise${q}&format=csv`).expect(200);
-    assert.match(csv.headers['content-type'], /text\/csv/);
-    assert.match(csv.headers['content-disposition'], /attachment; filename="mr-wise_/);
-    assert.ok(csv.text.includes(`"'=HYPERLINK(""http://evil"")"`));
-    assert.ok(csv.text.includes(`"'+Cipla"`));
+    const pdf = await get(doctor, `/reports/mr-wise${q}&format=pdf`)
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    assert.match(pdf.headers['content-type'], /application\/pdf/);
+    assert.match(pdf.headers['content-disposition'], /attachment; filename="mr-wise_.*\.pdf"/);
+    assert.equal(pdf.body.subarray(0, 5).toString('latin1'), '%PDF-');
+
+    await get(doctor, `/reports/mr-wise${q}&format=csv`).expect(400);
 
     await get(doctor, '/reports/mr-wise?from=2024-01-01&to=2026-01-01').expect(400);
     await get(doctor, '/reports/mr-wise?from=2026-02-01&to=2026-01-01').expect(400);

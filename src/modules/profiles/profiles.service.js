@@ -3,7 +3,8 @@ import { doctorsForReceptionist } from '../access/access.service.js';
 import { ReceptionistAccess } from '../access/receptionistAccess.model.js';
 import { cancelUpcomingFor } from '../appointments/appointments.service.js';
 import { audit } from '../audit/audit.js';
-import { revokeAllSessions } from '../auth/token.service.js';
+import { issueOtp, verifyOtp } from '../auth/otp.service.js';
+import { issueTokens, revokeAllSessions } from '../auth/token.service.js';
 import { currentSubscription } from '../billing/billing.service.js';
 import { adminAccessFor } from '../staff/adminAccess.js';
 import { User } from '../users/user.model.js';
@@ -45,9 +46,21 @@ export async function updateMe(user, { name }, req) {
   return getMe(user);
 }
 
+/**
+ * Optional top-level fields of each full-form save. The app leaves a cleared
+ * field out of the body, so a missing key here means "remove the old value".
+ */
+const CLEARABLE = {
+  'doctor:profile': ['dateOfBirth', 'dateOfMarriage', 'hprId', 'subSpecialty'],
+  'doctor:final': ['referralMobile'],
+  'mr:profile': ['dateOfMarriage', 'lastWorkingDate'],
+};
+
 async function saveProfile(user, Model, fields, step, req) {
   const { name, ...rest } = fields;
-  const profile = await Model.findOneAndUpdate({ user: user._id }, { $set: rest }, { new: true, runValidators: true });
+  const clear = (CLEARABLE[`${user.role}:${step}`] ?? []).filter((k) => rest[k] === undefined);
+  const update = { $set: rest, ...(clear.length && { $unset: Object.fromEntries(clear.map((k) => [k, ''])) }) };
+  const profile = await Model.findOneAndUpdate({ user: user._id }, update, { new: true, runValidators: true });
   if (!profile) throw ApiError.notFound('Profile not found', 'PROFILE_NOT_FOUND');
   if (name) user.name = name;
   user.onboarding = { ...user.onboarding, [step]: true };
@@ -98,12 +111,65 @@ export async function setAvailability(user, availability, req) {
   return { availability };
 }
 
+// ---- Mobile number change (signed in) ---------------------------------------------
+
+/** PINs are bound to the account, so a PIN for one user can never change another's number. */
+const changeMobilePurpose = (user) => `change-mobile:${user._id}`;
+const deletePurpose = (user) => `delete-account:${user._id}`;
+
+async function assertMobileFree(mobile, user) {
+  if (mobile === user.mobile) {
+    throw ApiError.badRequest('This is already your mobile number', [{ path: 'mobile', message: 'Same as current' }], 'VALIDATION_ERROR');
+  }
+  if (await User.exists({ mobile })) {
+    throw ApiError.conflict('This mobile number is already registered with Mio Doctors', 'MOBILE_IN_USE');
+  }
+}
+
+/** Step 1: send a PIN to the new number (proves the user owns it). */
+export async function requestMobileChange(user, { mobile }) {
+  await assertMobileFree(mobile, user);
+  return issueOtp(mobile, changeMobilePurpose(user));
+}
+
+/**
+ * Step 2: verify the PIN and switch the number. Every session is signed out
+ * (the number is the login identity); this device gets fresh tokens.
+ */
+export async function confirmMobileChange(user, { mobile, otp }, req) {
+  await assertMobileFree(mobile, user);
+  await verifyOtp(mobile, changeMobilePurpose(user), otp);
+  const before = user.mobile;
+  user.mobile = mobile;
+  try {
+    await user.save();
+  } catch (err) {
+    // Registered by someone else between the check and the save.
+    if (err?.code === 11000) throw ApiError.conflict('This mobile number is already registered with Mio Doctors', 'MOBILE_IN_USE');
+    throw err;
+  }
+  await revokeAllSessions(user._id);
+  const fresh = await User.findById(user._id);
+  await audit({ actor: user, action: 'user.mobile_changed', module: 'users', entityType: 'User', entityId: user._id, before: { mobile: before }, after: { mobile }, req });
+  return { me: await getMe(fresh), tokens: await issueTokens(fresh, req) };
+}
+
+// ---- Delete account ------------------------------------------------------------------
+
+/** Sends the PIN that authorises deleting the signed-in account to its registered mobile. */
+export async function requestDeleteOtp(user) {
+  if (!user.mobile) throw ApiError.unprocessable('No mobile number on this account', 'NO_MOBILE');
+  return issueOtp(user.mobile, deletePurpose(user));
+}
+
 /**
  * Delete account: soft delete + anonymise, revoke every session and grant,
  * cancel upcoming appointments. History stays consistent for the other party.
+ * Requires the PIN from requestDeleteOtp().
  */
-export async function deleteAccount(user, { reason }, req) {
+export async function deleteAccount(user, { reason, otp }, req) {
   if (user.role === 'admin') throw ApiError.forbidden('Admin accounts are removed by another admin');
+  await verifyOtp(user.mobile, deletePurpose(user), otp);
 
   if (user.role === 'doctor') {
     await cancelUpcomingFor(user, 'doctor', 'Doctor account deleted');

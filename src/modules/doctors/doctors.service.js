@@ -2,12 +2,26 @@ import { ApiError } from '../../utils/ApiError.js';
 import { paging } from '../../utils/http.js';
 import { receptionistCan } from '../access/access.service.js';
 import { ACTIVE_STATUSES, Appointment } from '../appointments/appointment.model.js';
-import { buildSlots, dayBounds, localParts } from '../appointments/schedule.js';
+import { countFutureSlots, dayBounds, localParts } from '../appointments/schedule.js';
 import { McLEntry } from '../mcl/mcl.model.js';
 import { DoctorProfile } from '../profiles/profile.models.js';
 import { User } from '../users/user.model.js';
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Only what a directory card and the slot count need (keeps Master MCL fast). */
+const CARD_PROFILE_FIELDS = 'user code qualification specialty practice.type practice.clinicName practice.city practice.state availability mrCall';
+const CARD_USER_FIELDS = 'name photoUrl';
+
+/** "N cities" on the Master MCL header changes rarely: computed at most once a minute. */
+const CITY_COUNT_TTL_MS = 60_000;
+let cityCount = { value: 0, at: 0 };
+async function countCities() {
+  if (Date.now() - cityCount.at < CITY_COUNT_TTL_MS) return cityCount.value;
+  const cities = await DoctorProfile.distinct('practice.city');
+  cityCount = { value: cities.filter(Boolean).length, at: Date.now() };
+  return cityCount.value;
+}
 
 const card = (user, profile, slotsLeft) => ({
   id: user._id.toString(),
@@ -32,10 +46,10 @@ async function slotsLeftToday(profiles) {
     { $group: { _id: '$doctor', n: { $sum: 1 } } },
   ]);
   const byDoctor = new Map(booked.map((b) => [b._id.toString(), b.n]));
-  const now = Date.now();
+  const now = new Date();
   return new Map(
     profiles.map((p) => {
-      const future = buildSlots(p, today).filter((s) => s.startAt.getTime() > now).length;
+      const future = countFutureSlots(p, today, now);
       const cap = p.mrCall?.maxPerDay ?? Infinity;
       const taken = byDoctor.get(p.user.toString()) ?? 0;
       return [p.user.toString(), Math.max(0, Math.min(future, cap - taken))];
@@ -45,9 +59,9 @@ async function slotsLeftToday(profiles) {
 
 /** Directory cards for the given doctor user ids, in the given order. */
 export async function doctorCards(userIds, mrId) {
-  const users = await User.find({ _id: { $in: userIds }, role: 'doctor', status: 'active' }).lean();
+  const users = await User.find({ _id: { $in: userIds }, role: 'doctor', status: 'active' }).select(CARD_USER_FIELDS).lean();
   const byId = new Map(users.map((u) => [u._id.toString(), u]));
-  const profiles = await DoctorProfile.find({ user: { $in: users.map((u) => u._id) } }).lean();
+  const profiles = await DoctorProfile.find({ user: { $in: users.map((u) => u._id) } }).select(CARD_PROFILE_FIELDS).lean();
   const byUser = new Map(profiles.map((p) => [p.user.toString(), p]));
   const [left, mcl] = await Promise.all([slotsLeftToday(profiles), mclSet(mrId, users.map((u) => u._id))]);
   return userIds
@@ -66,7 +80,8 @@ async function mclSet(mrId, doctorIds) {
 export async function listDoctors(query, actor) {
   const profileFilter = {};
   if (query.specialty) profileFilter.specialty = new RegExp(`^${escapeRegex(query.specialty)}$`, 'i');
-  if (query.placeType) profileFilter['practice.type'] = query.placeType;
+  // Doctors practising at both places match either filter.
+  if (query.placeType) profileFilter['practice.type'] = { $in: [query.placeType, 'both'] };
   if (query.city) profileFilter['practice.city'] = new RegExp(`^${escapeRegex(query.city)}$`, 'i');
 
   const userFilter = { role: 'doctor', status: 'active', 'onboarding.profile': true };
@@ -82,11 +97,11 @@ export async function listDoctors(query, actor) {
 
   const { skip, limit, meta } = paging(query);
   const [users, total, cities] = await Promise.all([
-    User.find(userFilter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
+    User.find(userFilter).sort({ name: 1 }).skip(skip).limit(limit).select(CARD_USER_FIELDS).lean(),
     User.countDocuments(userFilter),
-    DoctorProfile.distinct('practice.city'),
+    countCities(),
   ]);
-  const profiles = await DoctorProfile.find({ user: { $in: users.map((u) => u._id) } }).lean();
+  const profiles = await DoctorProfile.find({ user: { $in: users.map((u) => u._id) } }).select(CARD_PROFILE_FIELDS).lean();
   const byUser = new Map(profiles.map((p) => [p.user.toString(), p]));
   const [left, mcl] = await Promise.all([
     slotsLeftToday(profiles),
@@ -97,7 +112,7 @@ export async function listDoctors(query, actor) {
       ...card(u, byUser.get(u._id.toString()), left.get(u._id.toString()) ?? 0),
       inMcl: mcl.has(u._id.toString()),
     })),
-    meta: { ...meta(total), cities: cities.filter(Boolean).length },
+    meta: { ...meta(total), cities },
   };
 }
 

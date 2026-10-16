@@ -103,18 +103,31 @@ export const validDoctorFinal = (receptionistMobile = nextMobile()) => ({
   consultation: { days: ['Mon'], from: '09:00', to: '14:00', feeRupees: 800, avgPatientsPerDay: 60 },
 });
 
-/** A registered doctor ready to receive bookings. */
+/**
+ * A registered doctor ready to receive bookings. New doctors start on auto
+ * approval; the workflow tests default to manual so visits stay pending
+ * unless a test asks for `availability: 'auto'`.
+ */
 export async function registeredDoctor(opts = {}) {
   const d = await login('doctor');
   const profile = { ...validDoctorProfile(opts.name), ...(opts.specialty && { specialty: opts.specialty }) };
   if (opts.dateOfBirth) profile.dateOfBirth = opts.dateOfBirth;
+  if (opts.gender) profile.gender = opts.gender;
   if (opts.practice) profile.practice = { ...profile.practice, ...opts.practice };
   await api().put(`${P}/doctors/me/profile`).set(auth(d.token)).send(profile).expect(200);
   await api().put(`${P}/doctors/me/final`).set(auth(d.token)).send(validDoctorFinal(opts.receptionistMobile)).expect(200);
-  if (opts.availability) {
-    await api().patch(`${P}/doctors/me/availability`).set(auth(d.token)).send({ availability: opts.availability }).expect(200);
-  }
+  await api()
+    .patch(`${P}/doctors/me/availability`)
+    .set(auth(d.token))
+    .send({ availability: opts.availability ?? 'manual' })
+    .expect(200);
   return d;
+}
+
+/** Deletes the signed-in account the way the app does: PIN first, then DELETE /me. */
+export async function deleteAccount(token, reason = 'Other') {
+  const otp = await api().post(`${P}/me/delete/otp`).set(auth(token)).expect(200);
+  return api().delete(`${P}/me`).set(auth(token)).send({ confirm: true, reason, otp: otp.body.data.devOtp });
 }
 
 /** Next valid slot start (tomorrow 10:00 IST + n * 15 min) as ISO string. */

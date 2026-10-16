@@ -1,11 +1,12 @@
 import mongoose from 'mongoose';
 import { z } from 'zod';
 
-/** Indian mobile number without country code. */
-export const mobile = z
-  .string()
-  .trim()
-  .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit mobile number');
+/**
+ * Indian mobile number without country code. The 5-series is accepted too:
+ * real subscribers register with numbers starting 5 (client report 11 Oct 2026).
+ */
+export const MOBILE_RE = /^[5-9]\d{9}$/;
+export const mobile = z.string().trim().regex(MOBILE_RE, 'Enter a valid 10-digit mobile number');
 
 export const objectId = z
   .string()

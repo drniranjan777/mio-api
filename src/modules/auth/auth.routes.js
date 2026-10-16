@@ -30,7 +30,19 @@ authRouter.post(
 authRouter.post(
   '/receptionist/request',
   authLimiter,
-  validate({ body: z.object({ mobile }) }),
+  validate({
+    body: z.object({
+      mobile,
+      /** The doctor to ask (either one): Mio code like DR00012, or the doctor's mobile. */
+      doctorCode: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^DR\d{5}$/, 'Use the Mio Doctor code, e.g. DR00012')
+        .optional(),
+      doctorMobile: mobile.optional(),
+    }),
+  }),
   asyncHandler(async (req, res) => ok(res, await auth.receptionistRequest(req.body, req))),
 );
 

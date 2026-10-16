@@ -31,10 +31,28 @@ export const IMAGE_RULES = Object.freeze({
   },
 });
 
+/** Rules per video purpose. MP4 (H.264/AAC) plays on every Android/iOS version the app supports. */
+export const VIDEO_RULES = Object.freeze({
+  banner: { folder: 'banners', maxBytes: 20 * 1024 * 1024 },
+});
+
+/** MP4 family brands accepted at bytes 8–11 of the `ftyp` box. QuickTime (`qt  `) is refused. */
+const MP4_BRANDS = new Set(['isom', 'iso2', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'M4V ', 'dash', 'msnv']);
+
+/** Detects an MP4 from its bytes (never from the name or Content-Type). */
+export function inspectVideo(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+  if (buf.toString('latin1', 4, 8) !== 'ftyp') return null;
+  if (!MP4_BRANDS.has(buf.toString('latin1', 8, 12))) return null;
+  return { mime: 'video/mp4', ext: 'mp4' };
+}
+
 const root = () => path.resolve(env.UPLOADS_DIR);
-const KEY_RE = /^[a-z]+\/[a-f0-9]{32}\.(png|jpg|webp)$/;
+const KEY_RE = /^[a-z]+\/[a-f0-9]{32}\.(png|jpg|webp|mp4)$/;
+const VIDEO_KEY_RE = /^[a-z]+\/[a-f0-9]{32}\.mp4$/;
 
 export const isUploadKey = (key) => typeof key === 'string' && KEY_RE.test(key);
+export const isVideoKey = (key) => typeof key === 'string' && VIDEO_KEY_RE.test(key);
 
 export function publicUrl(key) {
   return isUploadKey(key) ? `${env.publicBaseUrl}${UPLOAD_ROUTE}/${key}` : null;
@@ -74,6 +92,26 @@ export async function saveImage(buffer, purpose) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, buffer, { flag: 'wx', mode: 0o644 });
   return { key, url: publicUrl(key), width, height, bytes: buffer.length, mime: info.mime };
+}
+
+/** Validates and stores an MP4 video; returns `{ key, url, bytes, mime }`. */
+export async function saveVideo(buffer, purpose) {
+  const rules = VIDEO_RULES[purpose];
+  if (!rules) throw ApiError.badRequest('Unknown upload purpose', undefined, 'UPLOAD_PURPOSE');
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw ApiError.badRequest('No video received', undefined, 'UPLOAD_EMPTY');
+  }
+  if (buffer.length > rules.maxBytes) {
+    throw ApiError.badRequest(`Video is larger than ${rules.maxBytes / 1024 / 1024} MB`, undefined, 'UPLOAD_TOO_LARGE');
+  }
+  const info = inspectVideo(buffer);
+  if (!info) throw ApiError.badRequest('Use an MP4 video (H.264)', undefined, 'UPLOAD_TYPE');
+
+  const key = `${rules.folder}/${crypto.randomBytes(16).toString('hex')}.${info.ext}`;
+  const file = path.join(root(), key);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, buffer, { flag: 'wx', mode: 0o644 });
+  return { key, url: publicUrl(key), bytes: buffer.length, mime: info.mime };
 }
 
 export async function imageExists(key) {

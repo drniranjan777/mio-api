@@ -1,9 +1,9 @@
 import ExcelJS from 'exceljs';
 import mongoose from 'mongoose';
+import PDFDocument from 'pdfkit';
 
 import { env } from '../../config/env.js';
 import { ApiError } from '../../utils/ApiError.js';
-import { csvCell } from '../../utils/csv.js';
 import { grantedDoctorIds } from '../access/access.service.js';
 import { Appointment } from '../appointments/appointment.model.js';
 import { dayBounds, formatTime, localParts } from '../appointments/schedule.js';
@@ -25,6 +25,7 @@ export const REPORTS = Object.freeze({
   'confirmation-cancellation': { audience: 'mr', title: 'Appointment Confirmation & MR Cancellation Report' },
   'high-visit': { audience: 'mr', title: 'Company & Division-Wise High Visit MR Report' },
   performance: { audience: 'mr', title: 'MR Visit Performance & Activity Report' },
+  'doctor-visits': { audience: 'mr', title: 'Doctor Visit Details Report' },
   // Doctor / receptionist reports
   'company-visits': { audience: 'doctor', title: 'Company Visit Reports' },
   compliance: { audience: 'doctor', title: 'Appointment Compliance Reports' },
@@ -82,7 +83,8 @@ async function buildFilter(actor, query) {
   const filter = await scopeFilter(actor, query);
   const { start, end, from, to } = range(query);
   filter.startAt = { $gte: start, $lt: end };
-  if (query.company) filter['visitor.company'] = new RegExp(`^${escapeRegex(query.company)}$`, 'i');
+  // An MR's reports cover only their own visits, so there is no company choice for them.
+  if (query.company && actor.role !== 'mr') filter['visitor.company'] = new RegExp(`^${escapeRegex(query.company)}$`, 'i');
   if (query.specialty || query.city) {
     const pf = {};
     if (query.specialty) pf.specialty = new RegExp(`^${escapeRegex(query.specialty)}$`, 'i');
@@ -104,7 +106,7 @@ export async function filterOptions(actor) {
   const base = await scopeFilter(actor, {});
   base.startAt = { $gte: new Date(Date.now() - 365 * DAY_MS) };
   const [companies, mrIds, doctorIds] = await Promise.all([
-    Appointment.distinct('visitor.company', base),
+    actor.role === 'mr' ? [] : Appointment.distinct('visitor.company', base),
     actor.role === 'mr' ? [] : Appointment.distinct('mr', base),
     Appointment.distinct('doctor', base),
   ]);
@@ -158,6 +160,35 @@ async function namesFor(ids) {
   return new Map(users.map((u) => [u._id.toString(), u.status === 'deleted' ? 'Former user' : u.name]));
 }
 
+/**
+ * Doctor details allowed in any report or export: name, specialty,
+ * clinic/hospital and city/area. Mobile numbers, dates of birth and marriage
+ * dates are never read here, so they cannot leak into a download.
+ */
+const doctorColumns = [
+  ['doctor', 'Doctor Name'],
+  ['specialty', 'Specialty'],
+  ['clinic', 'Clinic / Hospital'],
+  ['city', 'City / Area'],
+];
+
+async function doctorDetails(ids) {
+  const profiles = await DoctorProfile.find({ user: { $in: ids.filter(Boolean) } })
+    .select('user specialty practice.clinicName practice.city')
+    .lean();
+  return new Map(profiles.map((p) => [p.user.toString(), p]));
+}
+
+function doctorCells(id, names, byDoc) {
+  const p = byDoc.get(id?.toString());
+  return {
+    doctor: names.get(id?.toString()) ?? '—',
+    specialty: p?.specialty ?? '—',
+    clinic: p?.practice?.clinicName ?? '—',
+    city: p?.practice?.city ?? '—',
+  };
+}
+
 const BUILDERS = {
   async 'visit-frequency'(filter) {
     const rows = await groupBy(filter, { $dateToString: { format: '%Y-%m-%d', date: '$startAt', timezone: tz() } }, { _id: 1 });
@@ -169,16 +200,25 @@ const BUILDERS = {
 
   async 'company-summary'(filter) {
     const rows = await groupBy(filter, '$doctor');
-    const names = await namesFor(rows.map((r) => r._id));
-    const profiles = await DoctorProfile.find({ user: { $in: rows.map((r) => r._id) } }).select('user specialty practice.city').lean();
-    const byDoc = new Map(profiles.map((p) => [p.user.toString(), p]));
+    const [names, byDoc] = await Promise.all([namesFor(rows.map((r) => r._id)), doctorDetails(rows.map((r) => r._id))]);
     return {
-      columns: cols([['doctor', 'Doctor'], ['specialty', 'Specialty'], ['city', 'City'], ...statusColumns]),
-      rows: rows.map(({ _id, ...r }) => ({
-        doctor: names.get(_id.toString()) ?? '—',
-        specialty: byDoc.get(_id.toString())?.specialty ?? '—',
-        city: byDoc.get(_id.toString())?.practice?.city ?? '—',
-        ...r,
+      columns: cols([...doctorColumns, ...statusColumns]),
+      rows: rows.map(({ _id, ...r }) => ({ ...doctorCells(_id, names, byDoc), ...r })),
+    };
+  },
+
+  /** One row per visit with the doctor's public practice details only. */
+  async 'doctor-visits'(filter) {
+    const appts = await Appointment.find(filter).sort({ startAt: 1 }).limit(MAX_ROWS).select('doctor startAt status').lean();
+    const ids = appts.map((a) => a.doctor);
+    const [names, byDoc] = await Promise.all([namesFor(ids), doctorDetails(ids)]);
+    return {
+      columns: cols([['date', 'Date'], ['time', 'Time'], ...doctorColumns, ['status', 'Status']]),
+      rows: appts.map((a) => ({
+        date: localParts(a.startAt).dateStr,
+        time: formatTime(a.startAt),
+        ...doctorCells(a.doctor, names, byDoc),
+        status: a.status[0].toUpperCase() + a.status.slice(1),
       })),
     };
   },
@@ -343,20 +383,79 @@ export async function summary(actor, query) {
   return { from, to, ...counts, reports: catalogue(actor) };
 }
 
-// ---- CSV ------------------------------------------------------------------------------
+// ---- PDF ------------------------------------------------------------------------------
 
-const BOM = String.fromCharCode(0xfeff);
+const PDF_BRAND = '#0864AC';
+const PDF_MARGIN = 36;
 
-export function toCsv(report) {
-  const lines = [
-    [report.title],
-    [`Period: ${report.from} to ${report.to}`],
-    [],
-    report.columns.map((c) => c.label),
-    ...report.rows.map((r) => report.columns.map((c) => r[c.key])),
-  ];
-  // BOM so Excel opens UTF-8 correctly.
-  return `${BOM}${lines.map((l) => l.map(csvCell).join(',')).join('\r\n')}\r\n`;
+/**
+ * A4 landscape table: title, period, repeating blue header row, zebra rows
+ * and page numbers. Columns share the width in proportion to their content.
+ * Built in memory; reports are capped at MAX_ROWS so the size stays bounded.
+ */
+export function toPdf(report) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: PDF_MARGIN, bufferPages: true, info: { Title: report.title, Author: 'Mio Doctors' } });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const width = doc.page.width - PDF_MARGIN * 2;
+    const bottom = doc.page.height - PDF_MARGIN - 18;
+    const text = (v) => (v === null || v === undefined ? '' : String(v));
+    const weights = report.columns.map((c) =>
+      Math.min(Math.max(c.label.length, ...report.rows.slice(0, 200).map((r) => text(r[c.key]).length), 6), 40),
+    );
+    const total = weights.reduce((a, b) => a + b, 0) || 1;
+    const widths = weights.map((w) => (w / total) * width);
+    const fontSize = report.columns.length > 8 ? 7.5 : 9;
+    const pad = 4;
+
+    const rowHeight = (cells, font) => {
+      doc.font(font).fontSize(fontSize);
+      return Math.max(...cells.map((c, i) => doc.heightOfString(c, { width: widths[i] - pad * 2 }))) + pad * 2;
+    };
+    const drawRow = (cells, y, { font, fill, color }) => {
+      const h = rowHeight(cells, font);
+      if (fill) doc.rect(PDF_MARGIN, y, width, h).fill(fill);
+      let x = PDF_MARGIN;
+      doc.font(font).fontSize(fontSize).fillColor(color);
+      cells.forEach((c, i) => {
+        doc.text(c, x + pad, y + pad, { width: widths[i] - pad * 2 });
+        x += widths[i];
+      });
+      return y + h;
+    };
+    const header = report.columns.map((c) => c.label);
+    const drawHeader = (y) => drawRow(header, y, { font: 'Helvetica-Bold', fill: PDF_BRAND, color: '#FFFFFF' });
+
+    doc.font('Helvetica-Bold').fontSize(15).fillColor(PDF_BRAND).text(report.title, PDF_MARGIN, PDF_MARGIN);
+    doc.font('Helvetica').fontSize(9).fillColor('#555555').text(`Period: ${report.from} to ${report.to}    Generated: ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`);
+    let y = drawHeader(doc.y + 8);
+
+    if (!report.rows.length) {
+      doc.font('Helvetica').fontSize(10).fillColor('#333333').text('No data for this period.', PDF_MARGIN, y + 10);
+    }
+    report.rows.forEach((r, i) => {
+      const cells = report.columns.map((c) => text(r[c.key]));
+      if (y + rowHeight(cells, 'Helvetica') > bottom) {
+        doc.addPage();
+        y = drawHeader(PDF_MARGIN);
+      }
+      y = drawRow(cells, y, { font: 'Helvetica', fill: i % 2 ? '#F2F7FC' : null, color: '#222222' });
+    });
+    if (report.truncated) {
+      doc.font('Helvetica-Oblique').fontSize(8).fillColor('#555555').text(`Only the first ${report.rows.length} rows are included. Narrow the dates for the rest.`, PDF_MARGIN, y + 6);
+    }
+
+    const range = doc.bufferedPageRange();
+    for (let p = range.start; p < range.start + range.count; p++) {
+      doc.switchToPage(p);
+      doc.font('Helvetica').fontSize(8).fillColor('#888888').text(`Mio Doctors · Page ${p + 1} of ${range.count}`, PDF_MARGIN, doc.page.height - PDF_MARGIN, { width, align: 'right', lineBreak: false });
+    }
+    doc.end();
+  });
 }
 
 // ---- Excel ----------------------------------------------------------------------------

@@ -83,6 +83,26 @@ export function buildSlots(profile, dateStr) {
   return slots;
 }
 
+/**
+ * Number of slots of `dateStr` that start after `now` — same answer as
+ * `buildSlots(...).filter(s => s.startAt > now).length`, without building
+ * them (directory cards need only the count, for many doctors per request).
+ */
+export function countFutureSlots(profile, dateStr, now = new Date()) {
+  const call = effectiveMrCall(profile);
+  const start = localMidnight(dateStr);
+  if (!call.days.includes(localParts(start).day)) return 0;
+  const from = toMinutes(call.from);
+  const lastStart = toMinutes(call.to) - call.slotMinutes;
+  if (lastStart < from) return 0;
+  const total = Math.floor((lastStart - from) / call.slotMinutes) + 1;
+  const elapsed = (now.getTime() - start.getTime()) / MINUTE; // minutes since local midnight
+  if (elapsed < from) return total;
+  // First slot strictly after now.
+  const firstFuture = Math.floor((elapsed - from) / call.slotMinutes) + 1;
+  return Math.max(0, total - firstFuture);
+}
+
 /** Throws unless `startAt` is a future, grid-aligned slot inside the doctor's MR call window. */
 export function assertBookableSlot(profile, startAt, now = new Date()) {
   const call = effectiveMrCall(profile);

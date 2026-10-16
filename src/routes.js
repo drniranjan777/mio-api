@@ -13,6 +13,7 @@ import { adminLocationsRouter } from './modules/locations/locations.routes.js';
 import { mclRouter } from './modules/mcl/mcl.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
 import { doctorMeRouter, meRouter, mrMeRouter, receptionistMeRouter } from './modules/profiles/profiles.routes.js';
+import { adminRecoveryRouter, recoveryRouter } from './modules/recovery/recovery.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { rolesRouter, staffRouter } from './modules/staff/staff.routes.js';
 import { adminUploadsRouter } from './modules/uploads/uploads.routes.js';
@@ -22,6 +23,7 @@ export const apiRouter = Router();
 
 apiRouter.get('/health', (_req, res) => res.json({ success: true, data: { status: 'ok' } }));
 
+apiRouter.use('/auth/recovery', recoveryRouter);
 apiRouter.use('/auth', authRouter);
 apiRouter.use('/me', meRouter);
 apiRouter.use('/doctors/me/receptionists', accessRouter);
@@ -48,4 +50,5 @@ apiRouter.use('/admin/roles', rolesRouter);
 apiRouter.use('/admin/banners', adminBannersRouter);
 apiRouter.use('/admin/locations', adminLocationsRouter);
 apiRouter.use('/admin/uploads', adminUploadsRouter);
+apiRouter.use('/admin/recovery-requests', adminRecoveryRouter);
 apiRouter.use('/admin', adminRouter);

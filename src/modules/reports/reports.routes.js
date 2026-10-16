@@ -35,7 +35,8 @@ reportsRouter.get(
   '/:type',
   validate({
     params: z.object({ type: z.enum(Object.keys(REPORTS)) }),
-    query: z.object({ ...filters, format: z.enum(['json', 'csv', 'xlsx']).default('json') }),
+    // Downloads are Excel or PDF only (UI change list, 11 Oct 2026).
+    query: z.object({ ...filters, format: z.enum(['json', 'xlsx', 'pdf']).default('json') }),
   }),
   asyncHandler(async (req, res) => {
     const report = await reports.runReport(req.user, req.params.type, req.query);
@@ -47,8 +48,8 @@ reportsRouter.get(
       res.set('Content-Disposition', `attachment; filename="${base}.xlsx"`);
       return res.send(await reports.toXlsx(report));
     }
-    res.set('Content-Type', 'text/csv; charset=utf-8');
-    res.set('Content-Disposition', `attachment; filename="${base}.csv"`);
-    return res.send(reports.toCsv(report));
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `attachment; filename="${base}.pdf"`);
+    return res.send(await reports.toPdf(report));
   }),
 );

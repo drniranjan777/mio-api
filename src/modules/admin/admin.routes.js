@@ -10,6 +10,7 @@ import { GRANT_STATUS, PERMISSIONS } from '../access/receptionistAccess.model.js
 import { ORDER_STATUS } from '../billing/billing.models.js';
 import * as admin from './admin.service.js';
 import * as doctorImport from './doctorImport.js';
+import { moveMobile } from '../recovery/recovery.service.js';
 import { adminCan } from '../staff/adminAccess.js';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
@@ -87,6 +88,15 @@ adminRouter.patch(
   adminCan('users'),
   validate({ params: idParam, body: z.object({ status: z.enum(['active', 'inactive']) }) }),
   asyncHandler(async (req, res) => ok(res, await admin.setUserStatus(req.user, req.params.id, req.body.status, req))),
+);
+adminRouter.patch(
+  '/users/:id/mobile',
+  adminCan('users'),
+  validate({ params: idParam, body: z.object({ mobile, reason: text(200) }).strict() }),
+  asyncHandler(async (req, res) => {
+    await moveMobile(req.user, req.params.id, req.body.mobile, req, req.body.reason);
+    return ok(res, await admin.getUser(req.params.id));
+  }),
 );
 
 adminRouter.get(

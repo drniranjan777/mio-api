@@ -6,6 +6,10 @@ const { Schema } = mongoose;
 export const TARGETING = Object.freeze(['all', 'state', 'city', 'multiple']);
 export const BANNER_STATUS = Object.freeze(['draft', 'active', 'inactive']);
 export const REDIRECT_TYPES = Object.freeze(['none', 'internal', 'external']);
+export const MEDIA_TYPES = Object.freeze(['image', 'video']);
+export const BANNER_GENDERS = Object.freeze(['male', 'female', 'other']);
+/** Doctor's "Practicing Location Type" (class of clinic/hospital). */
+export const LOCATION_CLASSES = Object.freeze(['Metro', 'Non-Metro']);
 
 /**
  * App screens a banner may open. Keys are stable identifiers; the app maps
@@ -39,8 +43,16 @@ const bannerSchema = new Schema(
   {
     title: { type: String, required: true, trim: true, maxlength: 120 },
     description: { type: String, trim: true, maxlength: 300 },
+    /** Always present: the picture, or the video's cover (shown by app builds without video). */
     imageKey: { type: String, required: true },
     mobileImageKey: { type: String },
+    mediaType: { type: String, enum: MEDIA_TYPES, default: 'image' },
+    /** MP4 for video banners. */
+    videoKey: { type: String },
+    /** Audience filters on top of location; empty = everyone. */
+    specialties: [{ type: String, trim: true, maxlength: 80 }],
+    genders: [{ type: String, enum: BANNER_GENDERS }],
+    locationClasses: [{ type: String, enum: LOCATION_CLASSES }],
     /** Overlay the title/description on the image (for plain artwork without text). */
     showText: { type: Boolean, default: false },
     redirectType: { type: String, enum: REDIRECT_TYPES, default: 'none' },

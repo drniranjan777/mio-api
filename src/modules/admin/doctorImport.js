@@ -23,13 +23,13 @@ export const DOCTOR_COLUMNS = [
   ['date_of_birth', 'DD/MM or DD/MM/YYYY'],
   ['email', 'Personal email'],
   ['council_reg_no', 'Medical council reg. no'],
-  ['practice_type', 'hospital / clinic'],
+  ['practice_type', 'hospital / clinic / both'],
   ['clinic_name', 'Hospital or clinic name'],
   ['address', 'Street address'],
   ['state', 'State'],
   ['district', 'District'],
   ['pincode', '6-digit PIN'],
-  ['availability', 'auto / manual / unavailable (default manual)'],
+  ['availability', 'auto / manual / unavailable (default auto)'],
   ['mr_call_days', 'e.g. Mon|Tue|Wed|Thu|Fri|Sat'],
   ['mr_call_from', 'HH:mm, e.g. 10:00'],
   ['mr_call_to', 'HH:mm, e.g. 16:00'],
@@ -81,7 +81,7 @@ const rowSchema = z
       .toLowerCase()
       .optional()
       .transform((v) => v || undefined)
-      .pipe(z.enum(['hospital', 'clinic'], { message: 'Use hospital or clinic' }).optional()),
+      .pipe(z.enum(['hospital', 'clinic', 'both'], { message: 'Use hospital, clinic or both' }).optional()),
     clinic_name: optional(160),
     address: optional(250),
     state: optional(60),

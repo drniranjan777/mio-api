@@ -24,8 +24,18 @@ const presentPlan = (p) => ({
   mrpPaise: p.mrpPaise ?? null,
   taxPercent: p.taxPercent,
   ...splitTax(p.pricePaise, p.taxPercent),
+  sacCode: p.sacCode ?? null,
+  durationDays: p.durationDays ?? null,
+  howToAvail: p.howToAvail ?? [],
   features: p.features,
 });
+
+/** Days of access a plan grants (null = lifetime). */
+function planDays(plan) {
+  if (plan.period === 'lifetime') return null;
+  if (plan.period === 'trial') return plan.durationDays ?? 60;
+  return plan.period === 'yearly' ? 365 : 30;
+}
 
 const presentSubscription = (s) =>
   s && {
@@ -87,15 +97,15 @@ async function loadPlanFor(user, planCode) {
   return plan;
 }
 
-/** Monthly/yearly add to any remaining time; lifetime never ends. */
+/** Monthly/yearly/trial add to any remaining time; lifetime never ends. */
 async function grant(user, plan, order, req) {
   const now = new Date();
   const current = await currentSubscription(user._id, now);
   if (current && !current.endsAt) return current; // already lifetime
   let endsAt = null;
-  if (plan.period !== 'lifetime') {
+  const days = planDays(plan);
+  if (days !== null) {
     const from = current?.endsAt && current.endsAt > now ? current.endsAt : now;
-    const days = plan.period === 'yearly' ? 365 : 30;
     endsAt = new Date(from.getTime() + days * DAY_MS);
   }
   let sub;
@@ -105,6 +115,7 @@ async function grant(user, plan, order, req) {
       plan: plan._id,
       planSnapshot: { code: plan.code, name: plan.name, period: plan.period, pricePaise: plan.pricePaise },
       order: order?._id,
+      ...(plan.period === 'trial' && { trialClaim: true }),
       startsAt: now,
       endsAt,
     });
@@ -217,7 +228,7 @@ export async function confirm(user, orderId, payload, req) {
   return { order: presentOrder(updated), subscription: presentSubscription(sub) };
 }
 
-/** Doctor "Claim lifetime Free Access". */
+/** Doctor "Claim lifetime Free Access" and MR "2 Months Free" (a trial, once per account). */
 export async function claimFree(user, { planCode }, req) {
   const plan = await loadPlanFor(user, planCode);
   if (plan.pricePaise !== 0) throw ApiError.unprocessable('This plan is not free', 'PLAN_NOT_FREE');
@@ -225,7 +236,16 @@ export async function claimFree(user, { planCode }, req) {
   if (current && (!current.endsAt || current.plan.equals(plan._id))) {
     return { subscription: presentSubscription(current) };
   }
-  return { subscription: presentSubscription(await grant(user, plan, null, req)) };
+  if (plan.period === 'trial' && (await Subscription.exists({ user: user._id, plan: plan._id }))) {
+    throw ApiError.conflict('The free 2 months offer has already been used on this account', 'TRIAL_USED');
+  }
+  try {
+    return { subscription: presentSubscription(await grant(user, plan, null, req)) };
+  } catch (err) {
+    // A double tap raced past the check above; the unique index kept it to one claim.
+    if (err?.code === 11000) throw ApiError.conflict('The free offer has already been claimed', 'TRIAL_USED');
+    throw err;
+  }
 }
 
 // ---- Admin -------------------------------------------------------------------

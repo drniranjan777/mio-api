@@ -3,13 +3,27 @@ import { z } from 'zod';
 import { day, hhmm, mobile, text } from '../../utils/zod.js';
 
 const req = (max = 120) => z.string().trim().min(1, 'Required').max(max);
+/** Optional free text: an empty string becomes undefined, so cleared fields are not stored as "". */
+const opt = (max = 120) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v === '' ? undefined : v))
+    .optional();
 const gender = z.enum(['male', 'female', 'other']);
 const age = z.coerce.number().int().min(18).max(100);
 const dm = z.string().trim().regex(/^\d{2}\/\d{2}(\/\d{4})?$/, 'Use DD/MM or DD/MM/YYYY');
+const optDm = z.union([dm, z.literal('').transform(() => undefined)]).optional();
+const optMobile = z.union([mobile, z.literal('').transform(() => undefined)]).optional();
 const email = z.string().trim().toLowerCase().email();
 const pincode = z.string().trim().regex(/^\d{6}$/, 'Enter a 6-digit pin code');
 const url = z.string().trim().url().max(500);
 const companyType = z.enum(['all', 'mnc', 'startup']);
+const otp = z.string().regex(/^\d{4}$/, 'Enter the 4 digit PIN');
+
+/** Practicing place: hospital, clinic or both (UI change list, 11 Oct 2026). */
+export const PLACE_TYPES = Object.freeze(['hospital', 'clinic', 'both']);
 
 const social = z
   .object({
@@ -32,24 +46,28 @@ export const doctorProfileBody = z.object({
   qualification: req(),
   gender,
   age,
-  dateOfBirth: dm,
-  dateOfMarriage: dm.optional(),
+  dateOfBirth: optDm,
+  dateOfMarriage: optDm,
   maritalStatus: req(40),
   specialty: req(),
+  subSpecialty: opt(120),
   email,
   religion: req(40),
   councilRegNo: req(60),
-  hprId: req(60),
+  hprId: opt(60),
   practice: z.object({
-    type: z.enum(['hospital', 'clinic']),
+    type: z.enum(PLACE_TYPES),
     clinicName: req(),
     preferredPlace: req(),
     address: req(300),
     city: req(),
     state: req(),
+    /** Shown under Personal Information in the app; stored here for compatibility. */
     hometown: req(),
     pincode,
+    /** "Practicing Location Type": Metro / Non-Metro. */
     locationType: req(40),
+    /** "Clinic / Hospital Location Category": Within City / City Outskirts / Outside City Limits. */
     territoryClass: req(40),
     gpsLink: url.optional(),
   }),
@@ -62,13 +80,16 @@ export const doctorFinalBody = z.object({
       companyTypes: z.array(companyType).min(1, 'Select at least one'),
     }),
   ),
-  contacts: z.object({
-    receptionistName: req(),
-    receptionistMobile: mobile,
-    pharmacyName: req(),
-    pharmacistName: req(),
-    pharmacistMobile: mobile,
-  }),
+  /** Every clinic contact is optional. */
+  contacts: z
+    .object({
+      receptionistName: opt(),
+      receptionistMobile: optMobile,
+      pharmacyName: opt(),
+      pharmacistName: opt(),
+      pharmacistMobile: optMobile,
+    })
+    .default({}),
   referralMobile: mobile.optional(),
   consultation: z
     .object({
@@ -86,26 +107,46 @@ export const availabilityBody = z.object({ availability: z.enum(['auto', 'manual
 
 // ---- MR ------------------------------------------------------------------------
 
-export const mrProfileBody = z.object({
-  name: req(),
-  qualification: req(),
-  gender,
-  age,
-  dateOfBirth: dm,
-  dateOfMarriage: dm.optional(),
-  maritalStatus: req(40),
-  company: z.object({ name: req(), type: req(60), address: req(300) }),
-  employerStatus: req(40),
-  lastWorkingDate: dm.optional(),
-  employeeCode: req(60),
-  officialEmail: email,
-  joiningDate: dm,
-  specialty: req(),
-  division: req(),
-  hq: z.object({ name: req(), class: req(40), city: req(), district: req(), state: req(), zone: req(40) }),
-  referralMobile: mobile,
-  social: social.optional(),
-});
+/**
+ * Specialty coverage is multi-select. Older app builds still send a single
+ * `specialty` string, so both shapes are accepted; the list is stored as
+ * `specialties` plus a joined `specialty` (used by reports and the admin panel).
+ */
+export const mrProfileBody = z
+  .object({
+    name: req(),
+    qualification: req(),
+    gender,
+    age,
+    dateOfBirth: dm,
+    dateOfMarriage: optDm,
+    maritalStatus: req(40),
+    company: z.object({ name: req(), type: req(60), address: req(300) }),
+    employerStatus: req(40),
+    joiningDate: dm,
+    /** Previous employer's last working date; freshers leave it empty. */
+    lastWorkingDate: optDm,
+    employeeCode: req(60),
+    /** Personal email (replaces the official email of the first release). */
+    email: email.optional(),
+    officialEmail: email.optional(),
+    specialties: z.array(req(80)).max(30).optional(),
+    specialty: opt(),
+    division: req(),
+    hq: z.object({ name: req(), class: req(40), city: req(), district: req(), state: req(), zone: req(40) }),
+    referralMobile: mobile,
+    social: social.optional(),
+  })
+  .superRefine((b, ctx) => {
+    if (!b.specialties?.length && !b.specialty) {
+      ctx.addIssue({ code: 'custom', path: ['specialties'], message: 'Select at least one specialty' });
+    }
+    if (!b.email && !b.officialEmail) ctx.addIssue({ code: 'custom', path: ['email'], message: 'Required' });
+  })
+  .transform(({ specialties, specialty, ...rest }) => {
+    const list = [...new Set((specialties?.length ? specialties : [specialty]).filter(Boolean))];
+    return { ...rest, specialties: list, specialty: list.join(', ') };
+  });
 
 // ---- Receptionist ------------------------------------------------------------------
 
@@ -119,7 +160,7 @@ export const receptionistProfileBody = z.object({
   email,
   religion: req(40),
   practice: z.object({
-    type: z.enum(['hospital', 'clinic']),
+    type: z.enum(PLACE_TYPES),
     clinicName: req(),
     address: req(300),
     city: req(),
@@ -133,9 +174,9 @@ export const receptionistProfileBody = z.object({
 export const receptionistFinalBody = z.object({
   territoryClass: req(40),
   gpsLink: url.optional(),
-  pharmacyName: req(),
-  pharmacistName: req(),
-  pharmacistMobile: mobile,
+  pharmacyName: opt(),
+  pharmacistName: opt(),
+  pharmacistMobile: optMobile,
   mrCall: timeWindow.and(
     z.object({
       maxPerDay: z.coerce.number().int().min(1).max(100),
@@ -160,4 +201,8 @@ export const settingsBody = z
   .partial()
   .strict()
   .refine((b) => Object.keys(b).length > 0, 'Nothing to update');
-export const deleteMeBody = z.object({ confirm: z.literal(true), reason: text(200) });
+
+/** Deleting an account needs the PIN sent to the registered mobile (POST /me/delete/otp). */
+export const deleteMeBody = z.object({ confirm: z.literal(true), reason: text(200), otp });
+export const changeMobileOtpBody = z.object({ mobile }).strict();
+export const changeMobileBody = z.object({ mobile, otp }).strict();

@@ -9,7 +9,7 @@ import { validate } from '../../middlewares/validate.js';
 import { audit } from '../audit/audit.js';
 import { adminCan } from '../staff/adminAccess.js';
 import { asyncHandler, created } from '../../utils/http.js';
-import { IMAGE_RULES, saveImage } from './storage.service.js';
+import { IMAGE_RULES, saveImage, saveVideo, VIDEO_RULES } from './storage.service.js';
 
 /** Admin image upload: raw image bytes in the body (no multipart needed). Mounted at /admin/uploads. */
 export const adminUploadsRouter = Router();
@@ -25,6 +25,18 @@ adminUploadsRouter.post(
     const image = await saveImage(req.body, req.query.purpose);
     await audit({ actor: req.user, action: 'upload.image', module: 'uploads', entityType: 'Upload', entityId: image.key, after: { bytes: image.bytes, width: image.width, height: image.height }, req });
     return created(res, image);
+  }),
+);
+
+adminUploadsRouter.post(
+  '/videos',
+  validate({ query: z.object({ purpose: z.enum(Object.keys(VIDEO_RULES)) }) }),
+  (req, res, next) => adminCan(`${req.query.purpose}s`)(req, res, next),
+  express.raw({ type: ['video/mp4', 'application/octet-stream'], limit: '21mb' }),
+  asyncHandler(async (req, res) => {
+    const video = await saveVideo(req.body, req.query.purpose);
+    await audit({ actor: req.user, action: 'upload.video', module: 'uploads', entityType: 'Upload', entityId: video.key, after: { bytes: video.bytes }, req });
+    return created(res, video);
   }),
 );
 

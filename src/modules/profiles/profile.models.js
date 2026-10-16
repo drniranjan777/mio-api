@@ -9,8 +9,11 @@ const doctorProfileSchema = new Schema(
   {
     user: { ...ref('User'), unique: true },
     code: { type: String, unique: true, required: true },
+    /** Code before the Oct 2026 renumbering (DR10001 style), kept for support searches. */
+    legacyCode: String,
     ...personalFields,
     specialty: String,
+    subSpecialty: String,
     councilRegNo: String,
     hprId: String,
     practice: practiceSchema,
@@ -25,8 +28,8 @@ const doctorProfileSchema = new Schema(
     consultation: consultationSchema,
     referralMobile: String,
     social: socialSchema,
-    /** auto: MR bookings auto-approved · manual: need approval · unavailable: no new bookings. */
-    availability: { type: String, enum: ['auto', 'manual', 'unavailable'], default: 'manual' },
+    /** auto: MR bookings auto-approved · manual: need approval · unavailable: no new bookings. New doctors start on auto. */
+    availability: { type: String, enum: ['auto', 'manual', 'unavailable'], default: 'auto' },
   },
   { timestamps: true },
 );
@@ -38,14 +41,19 @@ const mrProfileSchema = new Schema(
   {
     user: { ...ref('User'), unique: true },
     code: { type: String, unique: true, required: true },
+    /** Code before the Oct 2026 renumbering (DR10001 style), kept for support searches. */
+    legacyCode: String,
     ...personalFields,
     company: { name: String, type: { type: String }, address: String },
     employerStatus: String,
     lastWorkingDate: String,
     employeeCode: String,
+    /** First-release field; new registrations store the personal `email` instead. */
     officialEmail: { type: String, lowercase: true, trim: true },
     joiningDate: String,
+    /** `specialties` joined with ", " — kept for reports and older app builds. */
     specialty: String,
+    specialties: [String],
     division: String,
     hq: { name: String, class: String, city: String, district: String, state: String, zone: String },
     referralMobile: String,
@@ -58,6 +66,8 @@ const receptionistProfileSchema = new Schema(
   {
     user: { ...ref('User'), unique: true },
     code: { type: String, unique: true, required: true },
+    /** Code before the Oct 2026 renumbering (DR10001 style), kept for support searches. */
+    legacyCode: String,
     ...personalFields,
     practice: practiceSchema,
     final: {

@@ -23,7 +23,7 @@ doctorsRouter.get(
       ...pagination,
       q: z.string().trim().max(80).optional(),
       specialty: z.string().trim().max(80).optional(),
-      placeType: z.enum(['hospital', 'clinic']).optional(),
+      placeType: z.enum(['hospital', 'clinic', 'both']).optional(),
       city: z.string().trim().max(80).optional(),
     }),
   }),

@@ -7,10 +7,11 @@ import { asyncHandler, created, noContent, ok } from '../../utils/http.js';
 import { httpsUrl, idParam, objectId, pagination, plainText, text } from '../../utils/zod.js';
 import { isoDate } from '../appointments/appointments.routes.js';
 import { adminCan } from '../staff/adminAccess.js';
-import { BANNER_STATUS, REDIRECT_TYPES, TARGETING } from './banner.model.js';
+import { BANNER_GENDERS, BANNER_STATUS, LOCATION_CLASSES, MEDIA_TYPES, REDIRECT_TYPES, TARGETING } from './banner.model.js';
 import * as banners from './banners.service.js';
 
 const imageKey = z.string().regex(/^banners\/[a-f0-9]{32}\.(png|jpg|webp)$/, 'Upload the image first');
+const videoKey = z.string().regex(/^banners\/[a-f0-9]{32}\.mp4$/, 'Upload the video first');
 const dateOrNull = isoDate.nullable();
 
 const fields = {
@@ -18,6 +19,11 @@ const fields = {
   description: plainText(0, 300).optional(),
   imageKey,
   mobileImageKey: imageKey.nullable().optional(),
+  mediaType: z.enum(MEDIA_TYPES).default('image'),
+  videoKey: videoKey.nullable().optional(),
+  specialties: z.array(z.string().trim().min(1).max(80)).max(50).default([]),
+  genders: z.array(z.enum(BANNER_GENDERS)).max(3).default([]),
+  locationClasses: z.array(z.enum(LOCATION_CLASSES)).max(2).default([]),
   showText: z.boolean().default(false),
   redirectType: z.enum(REDIRECT_TYPES).default('none'),
   redirectTarget: z.string().trim().max(500).nullable().optional(),
@@ -39,12 +45,24 @@ const redirectRule = (b, ctx) => {
   }
 };
 
-const createBody = z.object(fields).strict().superRefine(redirectRule);
+/** A video banner needs its MP4; the image stays as the cover. */
+const mediaRule = (b, ctx) => {
+  if (b.mediaType === 'video' && !b.videoKey) {
+    ctx.addIssue({ code: 'custom', path: ['videoKey'], message: 'Upload the video' });
+  }
+};
+
+const createBody = z
+  .object(fields)
+  .strict()
+  .superRefine(redirectRule)
+  .superRefine(mediaRule);
 const updateBody = z
   .object(Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, k === 'description' ? v : v.optional()])))
   .strict()
   .superRefine((b, ctx) => {
     if (b.redirectType !== undefined) redirectRule(b, ctx);
+    if (b.mediaType === 'video' && b.videoKey !== undefined) mediaRule(b, ctx);
     if (!Object.keys(b).length) ctx.addIssue({ code: 'custom', message: 'Nothing to update' });
   });
 

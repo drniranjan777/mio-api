@@ -168,36 +168,61 @@ export async function removeAccess(doctor, receptionistId, req) {
 
 // ---- Receptionist-side --------------------------------------------------------
 
+/** Doctor user id for a Mio code (DR00012) or the doctor's mobile; 404 when none matches. */
+async function findDoctorUser({ doctorCode, doctorMobile }) {
+  let userId;
+  if (doctorCode) {
+    const profile = await DoctorProfile.findOne({ code: doctorCode.toUpperCase() }).select('user').lean();
+    userId = profile?.user;
+  } else if (doctorMobile) {
+    userId = (await User.findOne({ mobile: doctorMobile, role: 'doctor' }).select('_id').lean())?._id;
+  }
+  const doctor = userId && (await User.findOne({ _id: userId, role: 'doctor', status: 'active' }).select('_id').lean());
+  if (!doctor) {
+    throw ApiError.notFound('No doctor found with this Mio code or mobile number. Please check it with your doctor.', 'DOCTOR_NOT_FOUND');
+  }
+  return doctor._id;
+}
+
 /**
  * "Send Request" on the receptionist login.
  *  - granted: at least one active grant → caller may send the OTP
  *  - blocked: grants exist but every one is deactivated
- *  - pending: request filed with doctors that listed this receptionist mobile
+ *  - pending: request filed with the doctor the receptionist named (Mio code
+ *    or mobile) and every doctor that listed this receptionist mobile.
+ *    `needsDoctor: true` when no doctor could be found — the app then asks
+ *    for the doctor's Mio code, so a request never silently goes nowhere.
  */
-export async function requestAccess(mobile, req) {
+export async function requestAccess(mobile, req, target = {}) {
   const user = await User.findOne({ mobile });
   if (user && user.role !== 'receptionist') {
     throw ApiError.conflict('This mobile number belongs to another type of account', 'MOBILE_IN_USE');
   }
   if (user?.status === 'inactive') throw ApiError.forbidden('Your account is not active', 'ACCOUNT_INACTIVE');
 
+  const named = target.doctorCode || target.doctorMobile ? await findDoctorUser(target) : null;
   if (user) {
     const grants = await ReceptionistAccess.find({ receptionist: user._id }).lean();
     if (grants.some((g) => g.status === 'active')) return { status: 'granted', routedTo: 0 };
-    if (grants.length && grants.every((g) => g.status === 'inactive')) return { status: 'blocked', routedTo: 0 };
+    // Deactivated everywhere — unless they are now asking a doctor they have no grant with.
+    const asksNewDoctor = named && !grants.some((g) => g.doctor.equals(named));
+    if (grants.length && grants.every((g) => g.status === 'inactive') && !asksNewDoctor) return { status: 'blocked', routedTo: 0 };
   }
 
   const receptionist = user ?? (await ensureReceptionistUser(mobile));
-  const doctors = await DoctorProfile.find({ 'contacts.receptionistMobile': mobile }).select('user').lean();
+  const listedBy = await DoctorProfile.find({ 'contacts.receptionistMobile': mobile }).select('user').lean();
+  const doctorIds = [...new Set([...(named ? [named.toString()] : []), ...listedBy.map((d) => d.user.toString())])];
   const newlyAsked = [];
-  for (const d of doctors) {
+  for (const doctor of doctorIds) {
     const res = await ReceptionistAccess.updateOne(
-      { doctor: d.user, receptionist: receptionist._id },
+      { doctor, receptionist: receptionist._id },
       { $setOnInsert: { status: 'pending', permissions: ['view'], requestedAt: new Date() } },
       { upsert: true },
     );
-    if (res.upsertedCount) newlyAsked.push(d.user);
+    if (res.upsertedCount) newlyAsked.push(doctor);
   }
+  // Earlier requests still waiting on a doctor count as routed too.
+  const routedTo = await ReceptionistAccess.countDocuments({ receptionist: receptionist._id, status: 'pending' });
   await notify(newlyAsked, {
     type: 'access.requested',
     title: 'Receptionist Access Request',
@@ -209,10 +234,10 @@ export async function requestAccess(mobile, req) {
     module: 'receptionist_access',
     entityType: 'User',
     entityId: receptionist._id,
-    after: { routedTo: doctors.length },
+    after: { routedTo, namedDoctor: named?.toString() },
     req,
   });
-  return { status: 'pending', routedTo: doctors.length };
+  return { status: 'pending', routedTo, needsDoctor: routedTo === 0 };
 }
 
 export async function doctorsForReceptionist(receptionistId) {

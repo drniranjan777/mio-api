@@ -28,12 +28,44 @@ describe('Plans & subscriptions', () => {
   it('lists plans per role with a GST-inclusive split', async () => {
     const [mr, doctor] = await Promise.all([login('mr'), registeredDoctor()]);
     const mrPlans = (await get(mr, '/plans').expect(200)).body.data;
-    assert.deepEqual(mrPlans.map((p) => p.code), ['mr-yearly', 'mr-monthly']);
-    const yearly = mrPlans[0];
+    assert.deepEqual(mrPlans.map((p) => p.code), ['mr-free-2-months', 'mr-yearly', 'mr-monthly']);
+    const yearly = mrPlans[1];
     assert.equal(yearly.pricePaise, 20000);
     assert.equal(yearly.basePaise + yearly.taxPaise, 20000);
     assert.equal(yearly.basePaise, 16949);
+    assert.equal(yearly.taxPercent, 18);
+    assert.match(yearly.sacCode, /^\d{6}$/);
+    assert.ok(!mrPlans.some((p) => p.features.includes('Download Doctors List')), 'doctor list download is gone');
     assert.deepEqual((await get(doctor, '/plans').expect(200)).body.data.map((p) => p.code), ['doctor-lifetime-free']);
+  });
+
+  it('MR "2 Months Free": 60 days, once per account, paid time added after it', async () => {
+    const mr = await login('mr');
+    const plan = (await get(mr, '/plans').expect(200)).body.data[0];
+    assert.equal(plan.period, 'trial');
+    assert.equal(plan.durationDays, 60);
+    assert.ok(plan.howToAvail.length >= 3);
+
+    const [a, b] = await Promise.all([
+      post(mr, '/subscriptions/claim-free', { planCode: 'mr-free-2-months' }),
+      post(mr, '/subscriptions/claim-free', { planCode: 'mr-free-2-months' }),
+    ]);
+    // A double tap either returns the same trial or is refused — never two trials.
+    const [first, second] = [a.status, b.status].sort();
+    assert.equal(first, 200);
+    assert.ok([200, 409].includes(second));
+    assert.equal(await Subscription.countDocuments({ trialClaim: true }), 1);
+    const sub = (await get(mr, '/subscriptions/me').expect(200)).body.data.current;
+    assert.ok(Math.abs(new Date(sub.endsAt).getTime() - (Date.now() + 60 * DAY)) < 60_000);
+
+    // Buying during the trial starts after it.
+    const { res } = await buy(mr, 'mr-monthly');
+    assert.ok(Math.abs(new Date(res.body.data.subscription.endsAt).getTime() - (Date.now() + 90 * DAY)) < 60_000);
+
+    // The trial is gone for good once it has been used.
+    await Subscription.updateMany({ user: mr.id }, { $set: { endsAt: new Date(Date.now() - DAY) } });
+    const again = await post(mr, '/subscriptions/claim-free', { planCode: 'mr-free-2-months' }).expect(409);
+    assert.equal(again.body.error.code, 'TRIAL_USED');
   });
 
   it('charges the server price, activates a year and shows it on /me', async () => {

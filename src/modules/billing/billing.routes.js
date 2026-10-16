@@ -26,9 +26,16 @@ plansRouter.put(
       pricePaise: z.number().int().min(0).max(10_000_000),
       mrpPaise: z.number().int().min(0).max(10_000_000).optional(),
       taxPercent: z.number().min(0).max(50).default(18),
+      sacCode: z.string().trim().regex(/^\d{6}$/, 'SAC code is 6 digits').optional(),
+      durationDays: z.number().int().min(1).max(3650).optional(),
+      howToAvail: z.array(z.string().trim().min(1).max(200)).max(10).optional(),
       features: z.array(z.string().trim().min(1).max(120)).max(20).default([]),
       active: z.boolean().default(true),
       sort: z.number().int().default(0),
+    })
+    .refine((b) => b.period !== 'trial' || (b.pricePaise === 0 && b.durationDays), {
+      message: 'A trial plan is free and needs a duration in days',
+      path: ['durationDays'],
     }),
   }),
   asyncHandler(async (req, res) => ok(res, await billing.upsertPlan(req.user, req.body, req))),

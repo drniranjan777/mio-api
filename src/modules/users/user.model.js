@@ -40,6 +40,8 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ mobile: 1 }, { unique: true, partialFilterExpression: { mobile: { $type: 'string' } } });
 userSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: 'string' } } });
 userSchema.index({ role: 1, status: 1, createdAt: -1 });
+// Master MCL: active, registered doctors sorted by name.
+userSchema.index({ role: 1, status: 1, 'onboarding.profile': 1, name: 1 });
 
 userSchema.methods.toPublic = function toPublic() {
   return {

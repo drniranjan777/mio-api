@@ -19,7 +19,8 @@
     "migrate:status": "node --env-file-if-exists=.env scripts/migrate.js status",
     "admin:password": "node --env-file-if-exists=.env scripts/admin-password.js",
     "lint": "eslint .",
-    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\""
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\"",
+    "loadtest": "node scripts/loadtest.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -29,14 +30,18 @@
     "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.1.0",
+    "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.0",
+    "pdfkit": "^0.17.2",
     "pino": "^9.7.0",
     "pino-http": "^10.5.0",
+    "rate-limit-redis": "^4.3.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.29.0",
+    "autocannon": "^8.0.0",
     "eslint": "^9.29.0",
     "globals": "^16.2.0",
     "mongodb-memory-server": "^10.1.4",

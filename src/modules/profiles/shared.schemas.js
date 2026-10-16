@@ -8,7 +8,7 @@ export const COMPANY_TYPES = Object.freeze(['all', 'mnc', 'startup']);
 /** Clinic / hospital location block (Doctor & Receptionist registration). */
 export const practiceSchema = new Schema(
   {
-    type: { type: String, enum: ['hospital', 'clinic'] },
+    type: { type: String, enum: ['hospital', 'clinic', 'both'] },
     clinicName: String,
     preferredPlace: String,
     address: String,

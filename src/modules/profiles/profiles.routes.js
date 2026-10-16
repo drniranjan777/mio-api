@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { authenticate, requireRole } from '../../middlewares/auth.js';
+import { authLimiter } from '../../middlewares/rateLimits.js';
 import { validate } from '../../middlewares/validate.js';
 import { asyncHandler, noContent, ok } from '../../utils/http.js';
 import { doctorsForReceptionist } from '../access/access.service.js';
@@ -15,8 +16,29 @@ meRouter.use(authenticate);
 meRouter.get('/', handle((req) => profiles.getMe(req.user)));
 meRouter.patch('/', validate({ body: v.updateMeBody }), handle((req) => profiles.updateMe(req.user, req.body, req)));
 meRouter.patch('/settings', validate({ body: v.settingsBody }), handle((req) => profiles.updateSettings(req.user, req.body, req)));
+meRouter.post(
+  '/mobile/otp',
+  authLimiter,
+  requireRole('doctor', 'mr', 'receptionist'),
+  validate({ body: v.changeMobileOtpBody }),
+  handle((req) => profiles.requestMobileChange(req.user, req.body)),
+);
+meRouter.put(
+  '/mobile',
+  authLimiter,
+  requireRole('doctor', 'mr', 'receptionist'),
+  validate({ body: v.changeMobileBody }),
+  handle((req) => profiles.confirmMobileChange(req.user, req.body, req)),
+);
+meRouter.post(
+  '/delete/otp',
+  authLimiter,
+  requireRole('doctor', 'mr', 'receptionist'),
+  handle((req) => profiles.requestDeleteOtp(req.user)),
+);
 meRouter.delete(
   '/',
+  authLimiter,
   requireRole('doctor', 'mr', 'receptionist'),
   validate({ body: v.deleteMeBody }),
   asyncHandler(async (req, res) => {
