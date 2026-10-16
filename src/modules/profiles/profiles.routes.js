@@ -5,6 +5,7 @@ import { authLimiter } from '../../middlewares/rateLimits.js';
 import { validate } from '../../middlewares/validate.js';
 import { asyncHandler, noContent, ok } from '../../utils/http.js';
 import { doctorsForReceptionist } from '../access/access.service.js';
+import { rawImage } from '../uploads/rawImage.js';
 import * as v from './profile.validators.js';
 import * as profiles from './profiles.service.js';
 
@@ -36,6 +37,9 @@ meRouter.post(
   requireRole('doctor', 'mr', 'receptionist'),
   handle((req) => profiles.requestDeleteOtp(req.user)),
 );
+// Profile photo: raw JPG/PNG/WEBP bytes in the body (Content-Type image/jpeg etc.), max 2 MB.
+meRouter.put('/photo', requireRole('doctor', 'mr', 'receptionist'), rawImage(), handle((req) => profiles.setPhoto(req.user, req.body, req)));
+meRouter.delete('/photo', requireRole('doctor', 'mr', 'receptionist'), handle((req) => profiles.removePhoto(req.user, req)));
 meRouter.delete(
   '/',
   authLimiter,

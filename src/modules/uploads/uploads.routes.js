@@ -9,7 +9,8 @@ import { validate } from '../../middlewares/validate.js';
 import { audit } from '../audit/audit.js';
 import { adminCan } from '../staff/adminAccess.js';
 import { asyncHandler, created } from '../../utils/http.js';
-import { IMAGE_RULES, saveImage, saveVideo, VIDEO_RULES } from './storage.service.js';
+import { rawImage } from './rawImage.js';
+import { ADMIN_IMAGE_PURPOSES, saveImage, saveVideo, VIDEO_RULES } from './storage.service.js';
 
 /** Admin image upload: raw image bytes in the body (no multipart needed). Mounted at /admin/uploads. */
 export const adminUploadsRouter = Router();
@@ -17,10 +18,10 @@ adminUploadsRouter.use(authenticate, requireRole('admin'));
 
 adminUploadsRouter.post(
   '/images',
-  validate({ query: z.object({ purpose: z.enum(Object.keys(IMAGE_RULES)) }) }),
+  validate({ query: z.object({ purpose: z.enum(ADMIN_IMAGE_PURPOSES) }) }),
   // Section permission follows the purpose (only banners today).
   (req, res, next) => adminCan(`${req.query.purpose}s`)(req, res, next),
-  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp', 'application/octet-stream'], limit: '3mb' }),
+  rawImage(),
   asyncHandler(async (req, res) => {
     const image = await saveImage(req.body, req.query.purpose);
     await audit({ actor: req.user, action: 'upload.image', module: 'uploads', entityType: 'Upload', entityId: image.key, after: { bytes: image.bytes, width: image.width, height: image.height }, req });

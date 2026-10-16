@@ -28,6 +28,19 @@ export const IMAGE_RULES = Object.freeze({
     // The app shows banners at 358:162 (≈2.2:1); allow some slack for crops.
     minRatio: 1.6,
     maxRatio: 3.2,
+    ratioHint: 'banners must be wide, between 1.6:1 and 3.2:1 (e.g. 1080×490)',
+  },
+  // Profile photo (app users). The app should resize to ~1024px before upload.
+  photo: {
+    folder: 'photos',
+    maxBytes: 2 * 1024 * 1024,
+    minWidth: 200,
+    minHeight: 200,
+    maxWidth: 4000,
+    maxHeight: 4000,
+    minRatio: 0.5,
+    maxRatio: 2,
+    ratioHint: 'photos must be roughly square, between 1:2 and 2:1',
   },
 });
 
@@ -47,6 +60,9 @@ export function inspectVideo(buf) {
   return { mime: 'video/mp4', ext: 'mp4' };
 }
 
+/** Purposes the admin panel may upload (photos come from the app user themselves). */
+export const ADMIN_IMAGE_PURPOSES = Object.freeze(['banner']);
+
 const root = () => path.resolve(env.UPLOADS_DIR);
 const KEY_RE = /^[a-z]+\/[a-f0-9]{32}\.(png|jpg|webp|mp4)$/;
 const VIDEO_KEY_RE = /^[a-z]+\/[a-f0-9]{32}\.mp4$/;
@@ -56,6 +72,14 @@ export const isVideoKey = (key) => typeof key === 'string' && VIDEO_KEY_RE.test(
 
 export function publicUrl(key) {
   return isUploadKey(key) ? `${env.publicBaseUrl}${UPLOAD_ROUTE}/${key}` : null;
+}
+
+/** Reverse of publicUrl for values stored as full URLs (user.photoUrl); null if not one of ours. */
+export function keyFromUrl(url) {
+  const prefix = `${env.publicBaseUrl}${UPLOAD_ROUTE}/`;
+  if (typeof url !== 'string' || !url.startsWith(prefix)) return null;
+  const key = url.slice(prefix.length);
+  return isUploadKey(key) ? key : null;
 }
 
 /** Validates and stores an image; returns `{ key, url, width, height, bytes, mime }`. */
@@ -81,7 +105,7 @@ export async function saveImage(buffer, purpose) {
   }
   if (ratio < rules.minRatio || ratio > rules.maxRatio) {
     throw ApiError.badRequest(
-      `Image shape is ${ratio.toFixed(2)}:1; banners must be wide, between ${rules.minRatio}:1 and ${rules.maxRatio}:1 (e.g. 1080×490)`,
+      `Image shape is ${ratio.toFixed(2)}:1; ${rules.ratioHint}`,
       undefined,
       'UPLOAD_RATIO',
     );

@@ -7,6 +7,7 @@ import { issueOtp, verifyOtp } from '../auth/otp.service.js';
 import { issueTokens, revokeAllSessions } from '../auth/token.service.js';
 import { currentSubscription } from '../billing/billing.service.js';
 import { adminAccessFor } from '../staff/adminAccess.js';
+import { deleteImage, keyFromUrl, saveImage } from '../uploads/storage.service.js';
 import { User } from '../users/user.model.js';
 import { DoctorProfile, MrProfile, ReceptionistProfile, profileModelFor } from './profile.models.js';
 
@@ -55,6 +56,33 @@ const CLEARABLE = {
   'doctor:final': ['referralMobile'],
   'mr:profile': ['dateOfMarriage', 'lastWorkingDate'],
 };
+
+/** Profile photo: stores the new image, points photoUrl at it, removes the old file. */
+export async function setPhoto(user, buffer, req) {
+  const image = await saveImage(buffer, 'photo');
+  const before = { photoUrl: user.photoUrl };
+  user.photoUrl = image.url;
+  try {
+    await user.save();
+  } catch (err) {
+    await deleteImage(image.key);
+    throw err;
+  }
+  await deleteImage(keyFromUrl(before.photoUrl));
+  await audit({ actor: user, action: 'user.photo_updated', module: 'users', entityType: 'User', entityId: user._id, before, after: { photoUrl: user.photoUrl, bytes: image.bytes, width: image.width, height: image.height }, req });
+  return getMe(user);
+}
+
+export async function removePhoto(user, req) {
+  const before = { photoUrl: user.photoUrl };
+  if (before.photoUrl) {
+    user.photoUrl = undefined;
+    await user.save();
+    await deleteImage(keyFromUrl(before.photoUrl));
+    await audit({ actor: user, action: 'user.photo_removed', module: 'users', entityType: 'User', entityId: user._id, before, req });
+  }
+  return getMe(user);
+}
 
 async function saveProfile(user, Model, fields, step, req) {
   const { name, ...rest } = fields;
@@ -188,6 +216,7 @@ export async function deleteAccount(user, { reason, otp }, req) {
       $unset: { mobile: '', email: '', photoUrl: '' },
     },
   );
+  await deleteImage(keyFromUrl(user.photoUrl));
   await revokeAllSessions(user._id);
   await audit({ actor: user, action: 'user.deleted', module: 'users', entityType: 'User', entityId: user._id, after: { reason }, req });
 }

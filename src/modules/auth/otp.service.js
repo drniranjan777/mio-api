@@ -11,12 +11,15 @@ const HOURLY_LIMIT = 5;
 const hash = (mobile, purpose, code) =>
   crypto.createHmac('sha256', env.OTP_PEPPER).update(`${mobile}|${purpose}|${code}`).digest('hex');
 
-const generate = () => crypto.randomInt(0, 10 ** OTP_LENGTH).toString().padStart(OTP_LENGTH, '0');
+// STATIC_OTP only applies while no real gateway is configured.
+const staticOtp = () => (activeSmsProvider.name === 'dev' ? env.STATIC_OTP : undefined);
+
+const generate = () => staticOtp() ?? crypto.randomInt(0, 10 ** OTP_LENGTH).toString().padStart(OTP_LENGTH, '0');
 
 /** Issues an OTP. Returns `{ expiresIn, resendIn, devOtp? }`. */
 export async function issueOtp(mobile, purpose) {
-  // The dev provider sends nothing; outside dev mode that would silently lock users out.
-  if (activeSmsProvider.name === 'dev' && !env.OTP_DEV_MODE) {
+  // The dev provider sends nothing; outside dev mode (or a static PIN) that would silently lock users out.
+  if (activeSmsProvider.name === 'dev' && !env.OTP_DEV_MODE && !staticOtp()) {
     throw new ApiError(503, 'SMS_NOT_CONFIGURED', 'Sign-in by SMS is not available yet. Please try again later.');
   }
   const now = Date.now();
@@ -38,7 +41,13 @@ export async function issueOtp(mobile, purpose) {
     codeHash: hash(mobile, purpose, code),
     expiresAt: new Date(now + env.OTP_TTL_SECONDS * 1000),
   });
-  await activeSmsProvider.sendOtp(mobile, code);
+  try {
+    await activeSmsProvider.sendOtp(mobile, code);
+  } catch (err) {
+    // Not delivered: drop it so the user can retry at once and it does not count towards the hourly limit.
+    await OtpCode.deleteMany({ mobile, purpose });
+    throw err;
+  }
 
   const result = { expiresIn: env.OTP_TTL_SECONDS, resendIn: env.OTP_RESEND_SECONDS };
   if (env.OTP_DEV_MODE) result.devOtp = code;
