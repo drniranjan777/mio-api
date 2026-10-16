@@ -20,7 +20,7 @@ Flutter app (MR · Doctor · Receptionist)      React Admin Panel (Admin)
 
 | Part | Tech | Folder |
 |---|---|---|
-| API | Node 24, Express 4, Mongoose 8, Zod, JWT, bcrypt, helmet, cors, express-rate-limit, pino | `backend/` |
+| API | Node 24, Express 4, Mongoose 8, Zod, JWT, bcrypt, helmet, cors, express-rate-limit (+ Redis store), pino | `backend/` |
 | Admin panel | React 18 + Vite + TypeScript, React Router, TanStack Query, React Hook Form + Zod | `admin/` (phase 4) |
 | Mobile app | Flutter 3.47 (existing) + `dio` + `flutter_secure_storage` | `lib/` |
 
@@ -182,7 +182,9 @@ Lists: `?page=&limit=&sort=&q=` + resource filters, server-side only.
 ## 8. Security
 
 helmet · strict CORS allow-list from env · `express-rate-limit` (auth: tight,
-API: moderate) · request size limits · Zod validation on every body/query/param
+API: moderate; counters in Redis when `REDIS_URL` is set so all PM2 cluster
+workers share them, in memory otherwise — production refuses cluster mode
+without Redis) · request size limits · Zod validation on every body/query/param
 (unknown keys stripped → no mass assignment) · `express-mongo-sanitize` against
 operator injection · pino logger with redaction of `authorization`, `otp`,
 `password`, `mobile` · no stack traces in responses outside development ·

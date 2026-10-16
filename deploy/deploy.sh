@@ -28,6 +28,14 @@ npm run build
 
 echo "==> Restart API"
 cd "$APP/backend"
+# Fork ↔ cluster (REDIS_URL added/removed) can't be changed by a reload: PM2 keeps
+# the old mode. Recreate the process once in that case (a few seconds offline).
+WANT_MODE=$(node -p "require('./ecosystem.config.cjs').apps[0].exec_mode + '_mode'")
+HAVE_MODE=$(pm2 jlist | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const p=JSON.parse(s||'[]').find(a=>a.name==='mio-api');console.log(p?p.pm2_env.exec_mode:'')})")
+if [ -n "$HAVE_MODE" ] && [ "$HAVE_MODE" != "$WANT_MODE" ]; then
+  echo "    switching mio-api from $HAVE_MODE to $WANT_MODE"
+  pm2 delete mio-api
+fi
 pm2 startOrReload ecosystem.config.cjs
 pm2 save
 

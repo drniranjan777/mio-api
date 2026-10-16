@@ -4,6 +4,14 @@ const bool = z
   .enum(['true', 'false'])
   .transform((v) => v === 'true');
 
+/**
+ * True when this process is one of several workers: PM2 cluster mode exports
+ * `exec_mode=cluster_mode`; `npm run loadtest -- --workers N` sets API_WORKERS.
+ */
+export function isClustered(e = process.env) {
+  return e.exec_mode === 'cluster_mode' || Number(e.instances) > 1 || Number(e.API_WORKERS) > 1;
+}
+
 const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -32,10 +40,25 @@ const schema = z
     PAYMENTS_ENABLED: bool.default('true'),
     PAYMENT_ORDER_TTL_MINUTES: z.coerce.number().int().positive().default(30),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+    /** false only for local load tests (`npm run loadtest`); refused in production. */
+    RATE_LIMITS_ENABLED: bool.default('true'),
+    /**
+     * Shared store for rate-limit counters (e.g. redis://127.0.0.1:6379/0). Required
+     * when PM2 runs several workers; unset = in-memory counters (one process only).
+     */
+    REDIS_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^rediss?:\/\//, 'REDIS_URL must start with redis:// or rediss://').optional()),
   })
   .refine((e) => !(e.NODE_ENV === 'production' && e.OTP_DEV_MODE), {
     message: 'OTP_DEV_MODE must be false in production',
     path: ['OTP_DEV_MODE'],
+  })
+  .refine((e) => !(e.NODE_ENV === 'production' && !e.RATE_LIMITS_ENABLED), {
+    message: 'Rate limits cannot be disabled in production',
+    path: ['RATE_LIMITS_ENABLED'],
+  })
+  .refine((e) => !(e.NODE_ENV === 'production' && isClustered() && !e.REDIS_URL), {
+    message: 'Cluster mode needs REDIS_URL so rate limits are shared by all workers (or run a single fork-mode process)',
+    path: ['REDIS_URL'],
   })
   .refine((e) => !(e.NODE_ENV === 'production' && e.PAYMENT_PROVIDER === 'mock' && e.PAYMENTS_ENABLED), {
     message: 'The mock payment provider cannot be used in production (set PAYMENTS_ENABLED=false until a real gateway is added)',
@@ -53,6 +76,9 @@ function load() {
     ...env,
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
+    isClustered: isClustered(),
+    /** PM2 numbers workers 0..n-1; one-off jobs (worker 0 only) check this. */
+    isPrimaryWorker: (process.env.NODE_APP_INSTANCE ?? '0') === '0',
     corsOrigins: env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
     publicBaseUrl: (env.PUBLIC_BASE_URL ?? `http://localhost:${env.PORT}`).replace(/\/+$/, ''),
   });

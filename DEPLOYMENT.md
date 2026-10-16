@@ -111,6 +111,20 @@ sudo apt update && sudo apt -y install mongodb-org
 sudo systemctl enable --now mongod
 ```
 
+## Step 5b — Install Redis (shared rate limits for multiple API workers)
+
+The API runs one worker per CPU (PM2 cluster mode). Their rate-limit counters (OTP requests, admin logins, requests per minute) must be shared, so they live in Redis. Redis listens only on the server itself:
+
+```bash
+sudo apt -y install redis-server
+# Local only, no disk snapshots needed (counters are short-lived), bounded memory:
+sudo sed -i -e 's/^#\? *bind .*/bind 127.0.0.1 -::1/'             -e 's/^#\? *supervised .*/supervised systemd/'             -e 's/^#\? *maxmemory .*/maxmemory 64mb/'             -e 's/^#\? *maxmemory-policy .*/maxmemory-policy volatile-ttl/' /etc/redis/redis.conf
+sudo systemctl enable --now redis-server && sudo systemctl restart redis-server
+redis-cli ping    # PONG
+```
+
+`.env` already has `REDIS_URL=redis://127.0.0.1:6379/0`. To run a single API process instead (no Redis), leave `REDIS_URL` empty: the API then refuses to start in cluster mode, and `ecosystem.config.cjs` starts one fork-mode process. If Redis goes down while the API runs, requests keep working (without rate limits, logged as `Redis connection error`) until it is back.
+
 The database users and password are created in **step 7** from your `.env` (after the code is on the server) — nothing to type here.
 
 ## Step 6 — Get the code from GitHub (read-only deploy keys)
@@ -166,6 +180,7 @@ In `.env` fill in:
 - `JWT_ACCESS_SECRET`, `OTP_PEPPER` → the two random values
 - `PUBLIC_BASE_URL` (already `https://api.miodoctors.com`) and `UPLOADS_DIR` (`/var/www/miodoctors/uploads`, outside the code so deploys never touch images)
 - `SEED_ADMIN_EMAIL` → your admin email; `SEED_ADMIN_PASSWORD` → **at least 12 characters** (production rule)
+- `REDIS_URL` (already `redis://127.0.0.1:6379/0`, step 5b) and optionally `API_INSTANCES` (empty = one worker per CPU; `2` is a good start on a 2-vCPU VPS that also runs MongoDB)
 - `MONGODB_URI` → leave `CHANGE_ME` as is (a strong password is generated next), or put your own `mio_app` password there (letters and digits only)
 
 Create the database users and switch on MongoDB authentication — the passwords come from `.env`, nothing is shown on screen:
@@ -269,8 +284,9 @@ It pulls both repositories, installs, applies pending database migrations (`npm 
 | Task | Command |
 |---|---|
 | Database migrations | `npm run migrate:status` · `npm run migrate` · roll back the last one: `npm run migrate:down` (in `backend/`) |
-| API status / logs | `pm2 status` · `pm2 logs mio-api --lines 100` |
-| Restart API | `pm2 restart mio-api` |
+| API status / logs | `pm2 status` (one line per worker) · `pm2 logs mio-api --lines 100` |
+| Restart API | `pm2 reload mio-api` (cluster mode: workers restart one by one, no downtime) · `pm2 restart mio-api` |
+| Redis | `sudo systemctl status redis-server` · `redis-cli ping` · current limits: `redis-cli --scan --pattern 'mio:rl:*'` |
 | Nginx logs | `sudo tail -f /var/log/nginx/api.miodoctors.error.log` |
 | MongoDB status | `sudo systemctl status mongod` |
 | Certificates | `sudo certbot certificates` |
@@ -281,4 +297,5 @@ It pulls both repositories, installs, applies pending database migrations (`npm 
 - **Ubuntu 22.04:** identical steps; the MongoDB repo line picks `jammy` automatically.
 - **No AVX / prefer managed DB:** create a free/paid cluster on MongoDB Atlas, allow only the VPS IP, and put its `mongodb+srv://…` URI in `MONGODB_URI`; skip step 5 and step 11 (Atlas has backups).
 - **Optional extra protection for the admin panel:** restrict it to your office IPs by adding `allow 1.2.3.4; deny all;` inside the `location /` block of `admin.miodoctors.com.conf`.
+- **Scaling / what is shared between workers:** rate-limit counters → Redis; OTPs, refresh tokens, sessions, ID counters → MongoDB; uploaded images → `UPLOADS_DIR` on this server's disk (fine for several workers on one server; a second server would need shared storage). Each worker keeps only a 60-second cache of the doctor-city count and a dummy password hash in memory, which needs no sharing. Only worker 0 syncs MongoDB indexes at start-up. Load test numbers: `docs/LOADTEST.md`.
 - **Secrets:** `.env` is readable only by the `deploy` user (`chmod 600`). Never commit it or paste it in chat/email.
