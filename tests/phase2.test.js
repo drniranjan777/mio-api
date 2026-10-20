@@ -255,7 +255,9 @@ describe('Reports', () => {
 
     const filters = await get(mr1, '/reports/filters').expect(200);
     assert.equal(filters.body.data.doctors.length, 2);
-    assert.equal(filters.body.data.reports.length, 7);
+    // The company & employee summary is panel-only since 18 Oct 2026.
+    assert.equal(filters.body.data.reports.length, 6);
+    assert.ok(!filters.body.data.reports.some((r) => r.type === 'company-summary'));
     // MRs only see their own visits, so they get no company choice.
     assert.deepEqual(filters.body.data.companies, []);
 

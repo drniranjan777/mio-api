@@ -289,7 +289,8 @@ describe('Banner permissions & locations', () => {
 
   it('migration rolls back and re-applies cleanly', async () => {
     const mongoose = (await import('mongoose')).default;
-    // Newest first: the Oct 2026 data migration, then locations & banners.
+    // Newest first: 18 Oct corrections, 15 Oct UI changes, then locations & banners.
+    await runMigrations('down', { quiet: true });
     await runMigrations('down', { quiet: true });
     await runMigrations('down', { quiet: true });
     const names = (await mongoose.connection.db.listCollections().toArray()).map((c) => c.name);

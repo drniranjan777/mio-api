@@ -16,11 +16,15 @@ const MAX_RANGE_DAYS = 366;
 const MAX_ROWS = 2000;
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Report catalogue. `audience` decides who may run it. */
+/**
+ * Report catalogue. `audience` decides who may run it; `adminOnly` reports are
+ * hidden from that audience in the apps (App Corrections, 18 Oct 2026: the
+ * company & employee summary was removed from the MR app) but stay in the panel.
+ */
 export const REPORTS = Object.freeze({
   // MR reports
   'visit-frequency': { audience: 'mr', title: 'MR Wise Date-Wise Visit Frequency Report' },
-  'company-summary': { audience: 'mr', title: 'Company & Employee-Wise Visit Summary Report' },
+  'company-summary': { audience: 'mr', adminOnly: true, title: 'Company & Employee-Wise Visit Summary Report' },
   'monthly-visit-dates': { audience: 'mr', title: 'Monthly Employee-Wise Total Visit Dates Report' },
   'confirmation-cancellation': { audience: 'mr', title: 'Appointment Confirmation & MR Cancellation Report' },
   'high-visit': { audience: 'mr', title: 'Company & Division-Wise High Visit MR Report' },
@@ -39,7 +43,7 @@ const audienceOf = (role) => (role === 'mr' ? 'mr' : role === 'admin' ? 'any' : 
 export function catalogue(actor) {
   const audience = audienceOf(actor.role);
   return Object.entries(REPORTS)
-    .filter(([, r]) => audience === 'any' || r.audience === audience)
+    .filter(([, r]) => audience === 'any' || (r.audience === audience && !r.adminOnly))
     .map(([type, r]) => ({ type, title: r.title }));
 }
 
@@ -368,7 +372,9 @@ export async function runReport(actor, type, query) {
   const def = REPORTS[type];
   if (!def) throw ApiError.notFound('Unknown report', 'REPORT_NOT_FOUND');
   const audience = audienceOf(actor.role);
-  if (audience !== 'any' && def.audience !== audience) throw ApiError.forbidden('This report is not available for your role', 'REPORT_FORBIDDEN');
+  if (audience !== 'any' && (def.audience !== audience || def.adminOnly)) {
+    throw ApiError.forbidden('This report is not available for your role', 'REPORT_FORBIDDEN');
+  }
 
   const { filter, from, to } = await buildFilter(actor, query);
   const { columns, rows } = await BUILDERS[type](filter);

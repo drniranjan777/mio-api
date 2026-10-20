@@ -7,7 +7,7 @@ import { notify } from '../notifications/notifications.service.js';
 import { DoctorProfile, MrProfile } from '../profiles/profile.models.js';
 import { User } from '../users/user.model.js';
 import { ACTIVE_STATUSES, Appointment } from './appointment.model.js';
-import { assertBookableSlot, buildSlots, dayBounds, formatTime, formatWhen, localParts } from './schedule.js';
+import { CLOSED_DAY, assertBookableSlot, buildSlots, dayBounds, formatTime, formatWhen, localParts } from './schedule.js';
 
 /**
  * Permission names map onto receptionist grants:
@@ -221,6 +221,8 @@ export async function daySlots(actor, doctorId, dateStr) {
   const dayFull = maxPerDay !== null && taken.length >= maxPerDay;
   return {
     date: dateStr,
+    /** Sundays are closed for MR appointments: the app shows a notice instead of slots. */
+    closed: localParts(dayBounds(dateStr).start).day === CLOSED_DAY,
     doctorAvailability: profile?.availability ?? 'manual',
     maxPerDay,
     booked: taken.length,

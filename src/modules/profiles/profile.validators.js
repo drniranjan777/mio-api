@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { day, hhmm, mobile, text } from '../../utils/zod.js';
+import { FEE_RANGES } from './shared.schemas.js';
 
 const req = (max = 120) => z.string().trim().min(1, 'Required').max(max);
 /** Optional free text: an empty string becomes undefined, so cleared fields are not stored as "". */
@@ -22,6 +23,14 @@ const url = z.string().trim().url().max(500);
 /** Optional link: the app sends "" for a blank field, so that is treated as not set. */
 const optUrl = z.union([url, z.literal('').transform(() => undefined)]).optional();
 const companyType = z.enum(['all', 'mnc', 'startup']);
+/**
+ * One choice in the app's dropdown (All · MNC/Indian MNC only · Startup/New/PCD
+ * only), sent as a one-item list; "all" with anything else collapses to "all".
+ */
+const companyTypes = z
+  .array(companyType)
+  .min(1, 'Select at least one')
+  .transform((list) => (list.includes('all') ? ['all'] : [...new Set(list)]));
 const otp = z.string().regex(/^\d{4}$/, 'Enter the 4 digit PIN');
 
 /** Practicing place: hospital, clinic or both (UI change list, 11 Oct 2026). */
@@ -79,7 +88,7 @@ export const doctorFinalBody = z.object({
   mrCall: timeWindow.and(
     z.object({
       maxPerDay: z.coerce.number().int().min(1).max(100),
-      companyTypes: z.array(companyType).min(1, 'Select at least one'),
+      companyTypes,
     }),
   ),
   /** Every clinic contact is optional. */
@@ -99,6 +108,7 @@ export const doctorFinalBody = z.object({
       from: hhmm.optional(),
       to: hhmm.optional(),
       feeRupees: z.coerce.number().min(0).max(100000).optional(),
+      feeRange: z.enum(FEE_RANGES).optional(),
       avgPatientsPerDay: z.coerce.number().int().min(1).max(100).optional(),
     })
     .optional(),
@@ -124,7 +134,10 @@ export const mrProfileBody = z
     dateOfMarriage: optDm,
     maritalStatus: req(40),
     company: z.object({ name: req(), type: req(60), address: req(300) }),
-    employerStatus: req(40),
+    /** Free text, e.g. "Senior Medical Representative". */
+    designation: opt(80),
+    /** Sent by app builds before 1.0.4 instead of `designation`. */
+    employerStatus: opt(40),
     joiningDate: dm,
     /** Previous employer's last working date; freshers leave it empty. */
     lastWorkingDate: optDm,
@@ -144,6 +157,7 @@ export const mrProfileBody = z
       ctx.addIssue({ code: 'custom', path: ['specialties'], message: 'Select at least one specialty' });
     }
     if (!b.email && !b.officialEmail) ctx.addIssue({ code: 'custom', path: ['email'], message: 'Required' });
+    if (!b.designation && !b.employerStatus) ctx.addIssue({ code: 'custom', path: ['designation'], message: 'Required' });
   })
   .transform(({ specialties, specialty, ...rest }) => {
     const list = [...new Set((specialties?.length ? specialties : [specialty]).filter(Boolean))];
@@ -182,7 +196,7 @@ export const receptionistFinalBody = z.object({
   mrCall: timeWindow.and(
     z.object({
       maxPerDay: z.coerce.number().int().min(1).max(100),
-      companyTypes: z.array(companyType).min(1, 'Select at least one'),
+      companyTypes,
     }),
   ),
   referralMobile: mobile.optional(),
@@ -192,6 +206,7 @@ export const receptionistFinalBody = z.object({
       from: hhmm.optional(),
       to: hhmm.optional(),
       feeRupees: z.coerce.number().min(0).max(100000).optional(),
+      feeRange: z.enum(FEE_RANGES).optional(),
       avgPatientsPerDay: z.coerce.number().int().min(1).max(100).optional(),
     })
     .optional(),

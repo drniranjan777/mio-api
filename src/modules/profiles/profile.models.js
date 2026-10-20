@@ -45,6 +45,8 @@ const mrProfileSchema = new Schema(
     legacyCode: String,
     ...personalFields,
     company: { name: String, type: { type: String }, address: String },
+    /** Replaces "Employer Status" (App Corrections, 18 Oct 2026); old profiles keep `employerStatus`. */
+    designation: String,
     employerStatus: String,
     lastWorkingDate: String,
     employeeCode: String,
