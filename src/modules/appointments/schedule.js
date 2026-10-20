@@ -4,6 +4,9 @@ import { ApiError } from '../../utils/ApiError.js';
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MINUTE = 60_000;
 
+/** No MR appointments on Sundays, whatever a doctor's saved days say (App Corrections, 18 Oct 2026). */
+export const CLOSED_DAY = 'Sun';
+
 /** Used when a doctor has not configured MR call hours yet (PDF: "10:00 AM to 04:00 PM"). */
 export const DEFAULT_MR_CALL = Object.freeze({
   days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
@@ -22,7 +25,7 @@ const toMinutes = (hhmm) => {
 export function effectiveMrCall(profile) {
   const c = profile?.mrCall ?? {};
   return {
-    days: c.days?.length ? c.days : DEFAULT_MR_CALL.days,
+    days: (c.days?.length ? c.days : DEFAULT_MR_CALL.days).filter((d) => d !== CLOSED_DAY),
     from: c.from ?? DEFAULT_MR_CALL.from,
     to: c.to ?? DEFAULT_MR_CALL.to,
     slotMinutes: c.slotMinutes ?? DEFAULT_MR_CALL.slotMinutes,
@@ -110,6 +113,9 @@ export function assertBookableSlot(profile, startAt, now = new Date()) {
     throw ApiError.unprocessable('Please choose a future time slot', 'SLOT_IN_PAST');
   }
   const { day, minutes, seconds, ms } = localParts(startAt);
+  if (day === CLOSED_DAY) {
+    throw ApiError.unprocessable('MR appointments cannot be booked on Sundays', 'SUNDAY_CLOSED');
+  }
   const from = toMinutes(call.from);
   const to = toMinutes(call.to);
   const aligned = seconds === 0 && ms === 0 && (minutes - from) % call.slotMinutes === 0;

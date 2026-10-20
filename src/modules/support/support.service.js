@@ -18,7 +18,8 @@ export const DEFAULT_SUPPORT = Object.freeze({
     'Other',
   ],
   whatsapp: null,
-  emails: { mr: 'mr@miodoctors.com', doctor: 'doctor@miodoctors.com', receptionist: 'support@miodoctors.com' },
+  // Doctors write to support@ (App Corrections, 18 Oct 2026). Admins change these in Settings.
+  emails: { mr: 'mr@miodoctors.com', doctor: 'support@miodoctors.com', receptionist: 'support@miodoctors.com' },
 });
 
 export const MAX_OPEN_TICKETS = 5;

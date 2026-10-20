@@ -9,7 +9,14 @@ import { APPOINTMENT_STATUS } from './appointment.model.js';
 import * as appointments from './appointments.service.js';
 import { adminCan } from '../staff/adminAccess.js';
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+/** A real calendar date as "YYYY-MM-DD" (2026-02-30 is refused, not rolled over). */
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+  .refine((s) => {
+    const d = new Date(`${s}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  }, 'Not a valid date');
 const startAt = z.string().datetime({ offset: true });
 
 const listQuery = z.object({

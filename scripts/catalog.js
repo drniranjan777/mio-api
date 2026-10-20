@@ -6,11 +6,32 @@
 import { Plan } from '../src/modules/billing/billing.models.js';
 import { ContentPage, Faq } from '../src/modules/support/support.models.js';
 
-// "Download Doctors List" was removed (UI change list, 11 Oct 2026): the
-// Master MCL can no longer be downloaded by anyone. The client will send the
-// final feature list; admins edit it in the panel.
-export const MR_FEATURES = ['View Doctor Profiles', 'Book / View Appointments', 'Other App Features'];
-export const DOCTOR_FEATURES = ['Manage MR Appointments', 'Receptionist Access', 'Reports', 'Other App Features'];
+// Final feature lists from the client (App Corrections, 18 Oct 2026); admins
+// can still edit them in the panel. "Download Doctors List" stays removed.
+export const MR_FEATURES = [
+  'Free 2 Months Subscription',
+  'One-Tap Multiple Doctor Appointment Booking',
+  'GPS-Based New Doctor Discovery',
+  'Smart Ex-HQ & Outstation Visit Planning',
+  'Day-Wise Planning Based on Doctor Availability',
+  'Track MCL Visits & Missed Calls with Visit Reports',
+  'Doctor Birthday Wise Visit Planning & Greetings',
+  'No Hidden/Extra Charges',
+];
+export const DOCTOR_FEATURES = [
+  'LifeTime Free Subscription & No Hidden Charges',
+  'Manage Pharma MR Appointments with just Tap of a Click',
+  'Streamline & Standardize the Max number of appointments',
+  'Access reports to track MR multiple Visits month wise.',
+  'Upcoming Conference Planning & Updates.',
+];
+
+/** Feature lists shipped before 18 Oct 2026 (replaced by the migration of that date). */
+export const PREVIOUS_FEATURE_LISTS = [
+  ['View Doctor Profiles', 'Book / View Appointments', 'Other App Features'],
+  ['View Doctor Profiles', 'Book / View Appointments', 'Download Doctors List', 'Other App Features'],
+  ['Manage MR Appointments', 'Receptionist Access', 'Reports', 'Other App Features'],
+];
 
 /**
  * GST SAC code printed with prices. 998314 = IT design & development

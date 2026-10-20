@@ -1,3 +1,4 @@
+import { env } from '../../config/env.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { paging } from '../../utils/http.js';
 import { receptionistCan } from '../access/access.service.js';
@@ -23,6 +24,36 @@ async function countCities() {
   return cityCount.value;
 }
 
+/**
+ * Distinct non-empty values, case-insensitively, sorted. Of "Chennai" and
+ * "chennai" the capitalised spelling wins (code-point order puts it first).
+ */
+const distinctSorted = (values) => {
+  const clean = values.map((v) => (typeof v === 'string' ? v.trim() : '')).filter(Boolean).sort();
+  const byKey = new Map();
+  for (const v of clean) if (!byKey.has(v.toLowerCase())) byKey.set(v.toLowerCase(), v);
+  return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+};
+
+/** Filter choices change rarely: cached for a minute per process (not in tests). */
+let filterCache = { value: null, at: 0 };
+
+/** Master MCL filter choices, from the doctors an MR can actually find. */
+export async function directoryFilters() {
+  if (!env.isTest && filterCache.value && Date.now() - filterCache.at < CITY_COUNT_TTL_MS) return filterCache.value;
+  const users = await User.find({ role: 'doctor', status: 'active', 'onboarding.profile': true }).select('_id').lean();
+  const profiles = await DoctorProfile.find({ user: { $in: users.map((u) => u._id) } })
+    .select('specialty practice.city practice.clinicName')
+    .lean();
+  const value = {
+    specialties: distinctSorted(profiles.map((p) => p.specialty)),
+    cities: distinctSorted(profiles.map((p) => p.practice?.city)),
+    clinicNames: distinctSorted(profiles.map((p) => p.practice?.clinicName)),
+  };
+  filterCache = { value, at: Date.now() };
+  return value;
+}
+
 const card = (user, profile, slotsLeft) => ({
   id: user._id.toString(),
   name: user.name,
@@ -35,12 +66,14 @@ const card = (user, profile, slotsLeft) => ({
   city: profile?.practice?.city,
   state: profile?.practice?.state,
   availability: profile?.availability,
+  slotsLeft,
+  /** Same number; the name used by app builds before 1.0.4 (always today there). */
   slotsLeftToday: slotsLeft,
 });
 
-async function slotsLeftToday(profiles) {
-  const today = localParts(new Date()).dateStr;
-  const { start, end } = dayBounds(today);
+/** Free MR slots per doctor on `dateStr` (default today): future slots, capped by the daily maximum. */
+async function slotsLeftOn(profiles, dateStr = localParts(new Date()).dateStr) {
+  const { start, end } = dayBounds(dateStr);
   const booked = await Appointment.aggregate([
     { $match: { doctor: { $in: profiles.map((p) => p.user) }, status: { $in: ACTIVE_STATUSES }, startAt: { $gte: start, $lt: end } } },
     { $group: { _id: '$doctor', n: { $sum: 1 } } },
@@ -49,7 +82,7 @@ async function slotsLeftToday(profiles) {
   const now = new Date();
   return new Map(
     profiles.map((p) => {
-      const future = countFutureSlots(p, today, now);
+      const future = countFutureSlots(p, dateStr, now);
       const cap = p.mrCall?.maxPerDay ?? Infinity;
       const taken = byDoctor.get(p.user.toString()) ?? 0;
       return [p.user.toString(), Math.max(0, Math.min(future, cap - taken))];
@@ -63,7 +96,7 @@ export async function doctorCards(userIds, mrId) {
   const byId = new Map(users.map((u) => [u._id.toString(), u]));
   const profiles = await DoctorProfile.find({ user: { $in: users.map((u) => u._id) } }).select(CARD_PROFILE_FIELDS).lean();
   const byUser = new Map(profiles.map((p) => [p.user.toString(), p]));
-  const [left, mcl] = await Promise.all([slotsLeftToday(profiles), mclSet(mrId, users.map((u) => u._id))]);
+  const [left, mcl] = await Promise.all([slotsLeftOn(profiles), mclSet(mrId, users.map((u) => u._id))]);
   return userIds
     .map(String)
     .filter((id) => byId.has(id))
@@ -76,13 +109,21 @@ async function mclSet(mrId, doctorIds) {
   return new Set(rows.map((r) => r.doctor.toString()));
 }
 
-/** Master MCL: searchable, filterable doctor directory. */
+/** Exact, case-insensitive match against any of `values`. */
+const anyOf = (values) => ({ $in: values.map((v) => new RegExp(`^${escapeRegex(v)}$`, 'i')) });
+
+/**
+ * Master MCL: searchable, filterable doctor directory. Specialty, city and
+ * hospital/clinic name each take several values (any of them matches); the
+ * filters combine with AND.
+ */
 export async function listDoctors(query, actor) {
   const profileFilter = {};
-  if (query.specialty) profileFilter.specialty = new RegExp(`^${escapeRegex(query.specialty)}$`, 'i');
+  if (query.specialty?.length) profileFilter.specialty = anyOf(query.specialty);
   // Doctors practising at both places match either filter.
   if (query.placeType) profileFilter['practice.type'] = { $in: [query.placeType, 'both'] };
-  if (query.city) profileFilter['practice.city'] = new RegExp(`^${escapeRegex(query.city)}$`, 'i');
+  if (query.city?.length) profileFilter['practice.city'] = anyOf(query.city);
+  if (query.clinicName?.length) profileFilter['practice.clinicName'] = anyOf(query.clinicName);
 
   const userFilter = { role: 'doctor', status: 'active', 'onboarding.profile': true };
   if (query.q) {
@@ -104,7 +145,7 @@ export async function listDoctors(query, actor) {
   const profiles = await DoctorProfile.find({ user: { $in: users.map((u) => u._id) } }).select(CARD_PROFILE_FIELDS).lean();
   const byUser = new Map(profiles.map((p) => [p.user.toString(), p]));
   const [left, mcl] = await Promise.all([
-    slotsLeftToday(profiles),
+    slotsLeftOn(profiles, query.date),
     mclSet(actor?.role === 'mr' ? actor._id : undefined, users.map((u) => u._id)),
   ]);
   return {
@@ -124,7 +165,7 @@ export async function getDoctor(actor, doctorId) {
   const user = await User.findOne({ _id: doctorId, role: 'doctor', status: 'active' }).lean();
   if (!user) throw ApiError.notFound('Doctor not found', 'DOCTOR_NOT_FOUND');
   const profile = await DoctorProfile.findOne({ user: doctorId }).lean();
-  const left = await slotsLeftToday(profile ? [profile] : []);
+  const left = await slotsLeftOn(profile ? [profile] : []);
   return {
     ...card(user, profile, left.get(doctorId) ?? 0),
     mrCall: profile?.mrCall,

@@ -191,6 +191,8 @@ describe('Code renumbering migration', () => {
     const next = await login('doctor');
     assert.equal(await codeOf(next), 'DR00003');
 
+    // `down` undoes the newest migration only: the 18 Oct one first, then this one.
+    await runMigrations('down', { quiet: true });
     await runMigrations('down', { quiet: true });
     assert.equal((await DoctorProfile.findOne({ user: d1.id }).lean()).code, 'DR10001');
   });

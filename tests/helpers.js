@@ -130,13 +130,31 @@ export async function deleteAccount(token, reason = 'Other') {
   return api().delete(`${P}/me`).set(auth(token)).send({ confirm: true, reason, otp: otp.body.data.devOtp });
 }
 
-/** Next valid slot start (tomorrow 10:00 IST + n * 15 min) as ISO string. */
+/**
+ * The `daysAhead`-th bookable day from today (Sundays are closed), as
+ * [year, month, day] in IST: 1 = next working day, 2 = the one after, …
+ */
+export function bookableDay(daysAhead = 1) {
+  const today = new Date(Date.now() + 330 * 60_000);
+  let d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  for (let left = daysAhead; left > 0; ) {
+    d = new Date(d.getTime() + 86_400_000);
+    if (d.getUTCDay() !== 0) left -= 1;
+  }
+  return [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()];
+}
+
+/** Next valid slot start (10:00 IST on a bookable day + n * 15 min) as ISO string. */
 export function slot(n = 0, daysAhead = 1) {
-  const now = new Date(Date.now() + 330 * 60_000);
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const d = now.getUTCDate() + daysAhead;
+  const [y, m, d] = bookableDay(daysAhead);
   return new Date(Date.UTC(y, m, d, 10, 0) - 330 * 60_000 + n * 15 * 60_000).toISOString();
+}
+
+/** "YYYY-MM-DD" of the next Sunday (IST). */
+export function nextSunday() {
+  const today = new Date(Date.now() + 330 * 60_000);
+  const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + (7 - today.getUTCDay())));
+  return d.toISOString().slice(0, 10);
 }
 
 /** "DD/MM/YYYY" for a birthday `daysAhead` from today (IST), born `age` years ago. */
