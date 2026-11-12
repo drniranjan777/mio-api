@@ -184,6 +184,103 @@ async function findDoctorUser({ doctorCode, doctorMobile }) {
   return doctor._id;
 }
 
+const askedBody = (receptionist) => `${receptionist.name || `+91 ${receptionist.mobile}`} asked to manage your appointments`;
+
+/**
+ * Files (or re-opens) a pending request from `receptionist` to one doctor.
+ * New → pending; removed earlier → pending again; already pending → nothing
+ * new. Returns the grant's status before the call (null when there was none),
+ * so callers can tell what happened. The doctor is notified only when a
+ * request was actually filed.
+ */
+async function fileRequest(receptionist, doctorId, req) {
+  const now = new Date();
+  const inserted = await ReceptionistAccess.updateOne(
+    { doctor: doctorId, receptionist: receptionist._id },
+    { $setOnInsert: { status: 'pending', permissions: ['view'], requestedAt: now } },
+    { upsert: true },
+  );
+  let before = null;
+  if (!inserted.upsertedCount) {
+    const reopened = await ReceptionistAccess.updateOne(
+      { doctor: doctorId, receptionist: receptionist._id, status: 'inactive' },
+      { $set: { status: 'pending', requestedAt: now }, $unset: { revokedAt: '' } },
+    );
+    before = reopened.modifiedCount
+      ? 'inactive'
+      : (await ReceptionistAccess.findOne({ doctor: doctorId, receptionist: receptionist._id }).select('status').lean())?.status;
+  }
+  if (before === null || before === 'inactive') {
+    await notify([doctorId.toString()], { type: 'access.requested', title: 'Receptionist Access Request', body: askedBody(receptionist) });
+    await audit({
+      actor: receptionist,
+      action: 'receptionist_access.requested',
+      module: 'receptionist_access',
+      entityType: 'User',
+      entityId: receptionist._id,
+      after: { doctor: doctorId.toString(), reopened: before === 'inactive' },
+      req,
+    });
+  }
+  return before;
+}
+
+/**
+ * Receptionist app → Profile → Doctor Access: every doctor this receptionist
+ * is tagged to, active first, then pending, then removed.
+ */
+export async function myDoctorAccess(receptionistId) {
+  const grants = await ReceptionistAccess.find({ receptionist: receptionistId }).populate('doctor', 'name photoUrl status').lean();
+  const live = grants.filter((g) => g.doctor && g.doctor.status !== 'deleted');
+  const profiles = await DoctorProfile.find({ user: { $in: live.map((g) => g.doctor._id) } })
+    .select('user code specialty practice.clinicName practice.city')
+    .lean();
+  const byUser = new Map(profiles.map((p) => [p.user.toString(), p]));
+  const rank = { active: 0, pending: 1, inactive: 2 };
+  return live
+    .map((g) => {
+      const p = byUser.get(g.doctor._id.toString());
+      return {
+        doctor: {
+          id: g.doctor._id.toString(),
+          name: g.doctor.name,
+          photoUrl: g.doctor.photoUrl,
+          code: p?.code,
+          specialty: p?.specialty,
+          clinicName: p?.practice?.clinicName,
+          city: p?.practice?.city,
+        },
+        status: g.status,
+        permissions: g.permissions,
+        requestedAt: g.requestedAt,
+        grantedAt: g.grantedAt,
+      };
+    })
+    .sort((a, b) => rank[a.status] - rank[b.status] || String(a.doctor.code).localeCompare(String(b.doctor.code)));
+}
+
+/**
+ * Signed-in receptionist asks one more doctor (Mio code like DR00012, or the
+ * doctor's 10-digit mobile). Already active → 409 ALREADY_LINKED; already
+ * pending → nothing new (`alreadyRequested`); removed earlier → asked again.
+ */
+export async function requestDoctorAccess(receptionist, { doctor }, req) {
+  const value = doctor.trim();
+  const doctorId = await findDoctorUser(/^\d{10}$/.test(value) ? { doctorMobile: value } : { doctorCode: value });
+  const existing = await ReceptionistAccess.findOne({ doctor: doctorId, receptionist: receptionist._id }).select('status').lean();
+  if (existing?.status === 'active') {
+    throw ApiError.conflict("You already manage this doctor's appointments", 'ALREADY_LINKED');
+  }
+  const before = await fileRequest(receptionist, doctorId, req);
+  const doctors = await myDoctorAccess(receptionist._id);
+  return {
+    status: 'pending',
+    alreadyRequested: before === 'pending',
+    doctor: doctors.find((d) => d.doctor.id === doctorId.toString())?.doctor ?? null,
+    doctors,
+  };
+}
+
 /**
  * "Send Request" on the receptionist login.
  *  - granted: at least one active grant → caller may send the OTP
@@ -203,7 +300,11 @@ export async function requestAccess(mobile, req, target = {}) {
   const named = target.doctorCode || target.doctorMobile ? await findDoctorUser(target) : null;
   if (user) {
     const grants = await ReceptionistAccess.find({ receptionist: user._id }).lean();
-    if (grants.some((g) => g.status === 'active')) return { status: 'granted', routedTo: 0 };
+    if (grants.some((g) => g.status === 'active')) {
+      // Already approved by someone: a newly named doctor still gets the request.
+      if (named && !grants.some((g) => g.doctor.equals(named) && g.status !== 'inactive')) await fileRequest(user, named, req);
+      return { status: 'granted', routedTo: 0 };
+    }
     // Deactivated everywhere — unless they are now asking a doctor they have no grant with.
     const asksNewDoctor = named && !grants.some((g) => g.doctor.equals(named));
     if (grants.length && grants.every((g) => g.status === 'inactive') && !asksNewDoctor) return { status: 'blocked', routedTo: 0 };

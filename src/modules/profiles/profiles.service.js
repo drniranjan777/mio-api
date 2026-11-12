@@ -18,6 +18,34 @@ const toPaise = (consultation) => {
   return feeRupees === undefined ? rest : { ...rest, feePaise: Math.round(feeRupees * 100) };
 };
 
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const OPTIONS_LIMIT = 300;
+
+/** Distinct non-empty values, ignoring case and spaces; the capitalised spelling wins. */
+function distinctNames(values) {
+  const byKey = new Map();
+  for (const v of values.map((x) => (typeof x === 'string' ? x.trim().replace(/\s+/g, ' ') : '')).filter(Boolean).sort()) {
+    if (!byKey.has(v.toLowerCase())) byKey.set(v.toLowerCase(), v);
+  }
+  return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })).slice(0, OPTIONS_LIMIT);
+}
+
+/**
+ * MR registration type-ahead (11 Nov 2026): company names and divisions other
+ * MRs entered. Divisions are those of `company` when given (any spelling
+ * case), else all. The app adds its built-in company list on top.
+ */
+export async function mrRegistrationOptions({ company } = {}) {
+  const live = await User.find({ role: 'mr', status: { $ne: 'deleted' } }).select('_id').lean();
+  const ids = live.map((u) => u._id);
+  const companyFilter = company ? { 'company.name': new RegExp(`^\\s*${escapeRegex(company.trim())}\\s*$`, 'i') } : {};
+  const [companies, divisions] = await Promise.all([
+    MrProfile.distinct('company.name', { user: { $in: ids } }),
+    MrProfile.distinct('division', { user: { $in: ids }, ...companyFilter }),
+  ]);
+  return { companies: distinctNames(companies), divisions: distinctNames(divisions) };
+}
+
 export async function getMe(user) {
   const profile = await profileModelFor(user.role)?.findOne({ user: user._id }).select(PRIVATE_FIELDS).lean();
   const me = { user: user.toPublic(), profile: profile ?? null };

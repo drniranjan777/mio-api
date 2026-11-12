@@ -44,7 +44,7 @@ export const MR_TRIAL_STEPS = [
   'Complete your MR registration',
   'Tap "Claim 2 Months Free" — no payment or card needed',
   'Use every MR feature free for 60 days',
-  'Before it ends, choose Monthly or Yearly to continue — the paid time starts after your free days',
+  'Before it ends, choose Quarterly or Annual to continue — the paid time starts after your free days',
 ];
 
 export const PLANS = [
@@ -61,8 +61,9 @@ export const PLANS = [
     features: MR_FEATURES,
     sort: 0,
   },
-  { code: 'mr-yearly', role: 'mr', name: 'Yearly', period: 'yearly', pricePaise: 20000, mrpPaise: 40000, sacCode: DEFAULT_SAC, features: MR_FEATURES, sort: 1 },
-  { code: 'mr-monthly', role: 'mr', name: 'Monthly', period: 'monthly', pricePaise: 2000, mrpPaise: 4000, sacCode: DEFAULT_SAC, features: MR_FEATURES, sort: 2 },
+  // 11 Nov 2026: "Yearly" is shown as "Annual"; "Monthly" (₹20) became "Quarterly" (₹60, struck ₹120).
+  { code: 'mr-yearly', role: 'mr', name: 'Annual', period: 'yearly', pricePaise: 20000, mrpPaise: 40000, sacCode: DEFAULT_SAC, features: MR_FEATURES, sort: 1 },
+  { code: 'mr-quarterly', role: 'mr', name: 'Quarterly', period: 'quarterly', pricePaise: 6000, mrpPaise: 12000, sacCode: DEFAULT_SAC, features: MR_FEATURES, sort: 2 },
   { code: 'doctor-lifetime-free', role: 'doctor', name: 'Lifetime Free', period: 'lifetime', pricePaise: 0, mrpPaise: 4000, sacCode: DEFAULT_SAC, features: DOCTOR_FEATURES, sort: 1 },
 ];
 

@@ -77,6 +77,52 @@ function tzString() {
 
 // ---- Users ----------------------------------------------------------------------
 
+/**
+ * Doctor ↔ receptionist links for a page of users (11 Nov 2026 corrections):
+ * receptionists see the doctors they are tagged to, doctors their
+ * receptionists. Active and pending links only (removed ones are hidden),
+ * active first. Three queries for the whole page, whatever its size.
+ */
+async function linksFor(users) {
+  const doctors = users.filter((u) => u.role === 'doctor').map((u) => u._id);
+  const receptionists = users.filter((u) => u.role === 'receptionist').map((u) => u._id);
+  const links = new Map();
+  if (!doctors.length && !receptionists.length) return links;
+  const grants = await ReceptionistAccess.find({
+    status: { $in: ['active', 'pending'] },
+    $or: [{ doctor: { $in: doctors } }, { receptionist: { $in: receptionists } }],
+  })
+    .select('doctor receptionist status')
+    .lean();
+  const otherIds = [...new Set(grants.flatMap((g) => [g.doctor.toString(), g.receptionist.toString()]))];
+  const [people, doctorProfiles, receptionistProfiles] = await Promise.all([
+    User.find({ _id: { $in: otherIds }, status: { $ne: 'deleted' } }).select('name role').lean(),
+    profileModelFor('doctor').find({ user: { $in: otherIds } }).select('user code').lean(),
+    profileModelFor('receptionist').find({ user: { $in: otherIds } }).select('user code').lean(),
+  ]);
+  const person = new Map(people.map((p) => [p._id.toString(), p]));
+  const code = new Map([...doctorProfiles, ...receptionistProfiles].map((p) => [p.user.toString(), p.code]));
+  const add = (ownerId, otherId, status) => {
+    const other = person.get(otherId);
+    if (!other) return;
+    const list = links.get(ownerId) ?? [];
+    list.push({ id: otherId, code: code.get(otherId) ?? null, name: other.name ?? '', status });
+    links.set(ownerId, list);
+  };
+  const isDoctorRow = new Set(doctors.map(String));
+  const isReceptionistRow = new Set(receptionists.map(String));
+  for (const g of grants) {
+    const d = g.doctor.toString();
+    const r = g.receptionist.toString();
+    if (isDoctorRow.has(d)) add(d, r, g.status);
+    if (isReceptionistRow.has(r)) add(r, d, g.status);
+  }
+  for (const list of links.values()) {
+    list.sort((a, b) => (a.status === b.status ? String(a.code).localeCompare(String(b.code)) : a.status === 'active' ? -1 : 1));
+  }
+  return links;
+}
+
 export async function listUsers(query) {
   const filter = { role: query.role ?? { $in: ['doctor', 'mr', 'receptionist'] } };
   if (query.status) filter.status = query.status;
@@ -93,12 +139,13 @@ export async function listUsers(query) {
   const byRole = {};
   for (const u of items) (byRole[u.role] ??= []).push(u._id);
   const codes = new Map();
-  await Promise.all(
-    Object.entries(byRole).map(async ([role, ids]) => {
+  const [links] = await Promise.all([
+    linksFor(items),
+    ...Object.entries(byRole).map(async ([role, ids]) => {
       const rows = await profileModelFor(role).find({ user: { $in: ids } }).select('user code specialty practice.city company.name').lean();
       for (const r of rows) codes.set(r.user.toString(), r);
     }),
-  );
+  ]);
   return {
     items: items.map((u) => {
       const p = codes.get(u._id.toString());
@@ -112,6 +159,8 @@ export async function listUsers(query) {
         code: p?.code,
         detail: p?.specialty ?? p?.company?.name ?? p?.practice?.city ?? null,
         onboarded: Boolean(u.onboarding?.profile && (u.role === 'mr' || u.onboarding?.final)),
+        /** Doctors: their receptionists; receptionists: the doctors they are tagged to. */
+        ...((u.role === 'doctor' || u.role === 'receptionist') && { links: links.get(u._id.toString()) ?? [] }),
         lastLoginAt: u.lastLoginAt,
         createdAt: u.createdAt,
       };
@@ -134,13 +183,27 @@ export async function getUser(id) {
       { $group: { _id: '$status', n: { $sum: 1 } } },
     ]),
   ]);
+  const otherIds = grants.map((g) => (user.role === 'doctor' ? g.receptionist : g.doctor)?._id).filter(Boolean);
+  const otherCodes = new Map(
+    otherIds.length && (user.role === 'doctor' || user.role === 'receptionist')
+      ? (await profileModelFor(user.role === 'doctor' ? 'receptionist' : 'doctor').find({ user: { $in: otherIds } }).select('user code').lean()).map((p) => [
+          p.user.toString(),
+          p.code,
+        ])
+      : [],
+  );
   return {
     user: { ...user.toPublic(), lastLoginAt: user.lastLoginAt },
     profile,
     subscription: subscription ? { plan: subscription.planSnapshot, endsAt: subscription.endsAt ?? null } : null,
     access: grants.map((g) => {
       const other = user.role === 'doctor' ? g.receptionist : g.doctor;
-      return { id: g._id.toString(), status: g.status, permissions: g.permissions, with: other && { id: other._id.toString(), name: other.name, mobile: other.mobile } };
+      return {
+        id: g._id.toString(),
+        status: g.status,
+        permissions: g.permissions,
+        with: other && { id: other._id.toString(), name: other.name, mobile: other.mobile, code: otherCodes.get(other._id.toString()) ?? null },
+      };
     }),
     appointments: Object.fromEntries(appointments.map((a) => [a._id, a.n])),
   };

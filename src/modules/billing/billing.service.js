@@ -34,7 +34,7 @@ const presentPlan = (p) => ({
 function planDays(plan) {
   if (plan.period === 'lifetime') return null;
   if (plan.period === 'trial') return plan.durationDays ?? 60;
-  return plan.period === 'yearly' ? 365 : 30;
+  return { yearly: 365, quarterly: 90 }[plan.period] ?? 30;
 }
 
 const presentSubscription = (s) =>
@@ -97,7 +97,7 @@ async function loadPlanFor(user, planCode) {
   return plan;
 }
 
-/** Monthly/yearly/trial add to any remaining time; lifetime never ends. */
+/** Monthly/quarterly/yearly/trial add to any remaining time; lifetime never ends. */
 async function grant(user, plan, order, req) {
   const now = new Date();
   const current = await currentSubscription(user._id, now);

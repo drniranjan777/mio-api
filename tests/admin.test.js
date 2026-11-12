@@ -30,7 +30,7 @@ describe('Admin API', () => {
     const doctor = await registeredDoctor();
     const mr = await login('mr');
     await post(mr, '/appointments', { doctorId: doctor.id, startAt: slot(0) }).expect(201);
-    const { order } = (await post(mr, '/subscriptions/checkout', { planCode: 'mr-monthly', method: 'upi' }).expect(201)).body.data;
+    const { order } = (await post(mr, '/subscriptions/checkout', { planCode: 'mr-quarterly', method: 'upi' }).expect(201)).body.data;
     await post(mr, `/subscriptions/orders/${order.id}/confirm`).expect(200);
 
     const d = (await get(admin, '/admin/dashboard').expect(200)).body.data;
@@ -38,7 +38,7 @@ describe('Admin API', () => {
     assert.equal(d.users.mr, 1);
     assert.equal(d.upcomingNext7Days, 1);
     assert.equal(d.activeSubscriptions, 1);
-    assert.deepEqual(d.revenueLast30Days, { paise: 2000, orders: 1 });
+    assert.deepEqual(d.revenueLast30Days, { paise: 6000, orders: 1 });
     assert.equal(d.appointmentTrend.length, 14);
   });
 

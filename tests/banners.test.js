@@ -289,7 +289,8 @@ describe('Banner permissions & locations', () => {
 
   it('migration rolls back and re-applies cleanly', async () => {
     const mongoose = (await import('mongoose')).default;
-    // Newest first: 18 Oct corrections, 15 Oct UI changes, then locations & banners.
+    // Newest first: 11 Nov plans, 18 Oct corrections, 15 Oct UI changes, then locations & banners.
+    await runMigrations('down', { quiet: true });
     await runMigrations('down', { quiet: true });
     await runMigrations('down', { quiet: true });
     await runMigrations('down', { quiet: true });

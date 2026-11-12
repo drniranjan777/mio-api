@@ -28,7 +28,8 @@ describe('Plans & subscriptions', () => {
   it('lists plans per role with a GST-inclusive split', async () => {
     const [mr, doctor] = await Promise.all([login('mr'), registeredDoctor()]);
     const mrPlans = (await get(mr, '/plans').expect(200)).body.data;
-    assert.deepEqual(mrPlans.map((p) => p.code), ['mr-free-2-months', 'mr-yearly', 'mr-monthly']);
+    // 11 Nov 2026: Monthly became Quarterly.
+    assert.deepEqual(mrPlans.map((p) => p.code), ['mr-free-2-months', 'mr-yearly', 'mr-quarterly']);
     const yearly = mrPlans[1];
     assert.equal(yearly.pricePaise, 20000);
     assert.equal(yearly.basePaise + yearly.taxPaise, 20000);
@@ -58,9 +59,9 @@ describe('Plans & subscriptions', () => {
     const sub = (await get(mr, '/subscriptions/me').expect(200)).body.data.current;
     assert.ok(Math.abs(new Date(sub.endsAt).getTime() - (Date.now() + 60 * DAY)) < 60_000);
 
-    // Buying during the trial starts after it.
-    const { res } = await buy(mr, 'mr-monthly');
-    assert.ok(Math.abs(new Date(res.body.data.subscription.endsAt).getTime() - (Date.now() + 90 * DAY)) < 60_000);
+    // Buying during the trial starts after it: 60 free days + 90 for Quarterly.
+    const { res } = await buy(mr, 'mr-quarterly');
+    assert.ok(Math.abs(new Date(res.body.data.subscription.endsAt).getTime() - (Date.now() + 150 * DAY)) < 60_000);
 
     // The trial is gone for good once it has been used.
     await Subscription.updateMany({ user: mr.id }, { $set: { endsAt: new Date(Date.now() - DAY) } });
@@ -87,7 +88,7 @@ describe('Plans & subscriptions', () => {
 
   it('confirming twice (even concurrently) grants one subscription', async () => {
     const mr = await login('mr');
-    const { order } = (await post(mr, '/subscriptions/checkout', { planCode: 'mr-monthly', method: 'upi' }).expect(201)).body.data;
+    const { order } = (await post(mr, '/subscriptions/checkout', { planCode: 'mr-quarterly', method: 'upi' }).expect(201)).body.data;
     const results = await Promise.all([1, 2, 3].map(() => post(mr, `/subscriptions/orders/${order.id}/confirm`)));
     assert.ok(results.every((r) => r.status === 200), JSON.stringify(results.map((r) => r.body)));
     assert.equal(await Subscription.countDocuments({ user: mr.id }), 1);
@@ -97,10 +98,10 @@ describe('Plans & subscriptions', () => {
 
   it('renewals stack on the remaining time', async () => {
     const mr = await login('mr');
-    await buy(mr, 'mr-monthly');
-    const { res } = await buy(mr, 'mr-monthly');
+    await buy(mr, 'mr-quarterly');
+    const { res } = await buy(mr, 'mr-quarterly');
     const ends = new Date(res.body.data.subscription.endsAt).getTime();
-    assert.ok(Math.abs(ends - (Date.now() + 60 * DAY)) < 60_000);
+    assert.ok(Math.abs(ends - (Date.now() + 180 * DAY)) < 60_000);
   });
 
   it('handles failed and expired payments without granting access', async () => {

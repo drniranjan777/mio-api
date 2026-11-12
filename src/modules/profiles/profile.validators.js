@@ -210,6 +210,18 @@ export const receptionistFinalBody = z.object({
     .optional(),
 });
 
+export const registrationOptionsQuery = z.object({ company: z.string().trim().max(120).optional() });
+
+/** Doctor's Mio code (DR00012) or 10-digit mobile. */
+export const doctorAccessRequestBody = z.object({
+  doctor: z
+    .string()
+    .trim()
+    .min(1, "Enter the doctor's Mio code or mobile number")
+    .max(20)
+    .regex(/^([A-Za-z]{2}\d{3,8}|[5-9]\d{9})$/, 'Use a Mio code like DR00012 or a 10-digit mobile number'),
+});
+
 export const updateMeBody = z.object({ name: text(120) }).strict();
 export const settingsBody = z
   .object({ notifications: z.boolean(), language: z.enum(['en', 'hi', 'te']) })

@@ -3,7 +3,8 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 /** trial = free for `durationDays`, claimable once per user (MR "2 Months Free"). */
-export const PLAN_PERIODS = Object.freeze(['monthly', 'yearly', 'lifetime', 'trial']);
+/** quarterly = 90 days (11 Nov 2026: the MR "Monthly" plan became "Quarterly"). */
+export const PLAN_PERIODS = Object.freeze(['monthly', 'quarterly', 'yearly', 'lifetime', 'trial']);
 export const PAYMENT_METHODS = Object.freeze(['card', 'gpay', 'phonepe', 'paytm', 'amazonpay', 'upi']);
 export const ORDER_STATUS = Object.freeze(['created', 'paid', 'failed', 'expired']);
 export const SUBSCRIPTION_STATUS = Object.freeze(['active', 'cancelled']);

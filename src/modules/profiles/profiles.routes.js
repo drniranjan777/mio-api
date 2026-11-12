@@ -4,7 +4,7 @@ import { authenticate, requireRole } from '../../middlewares/auth.js';
 import { authLimiter } from '../../middlewares/rateLimits.js';
 import { validate } from '../../middlewares/validate.js';
 import { asyncHandler, noContent, ok } from '../../utils/http.js';
-import { doctorsForReceptionist } from '../access/access.service.js';
+import { doctorsForReceptionist, myDoctorAccess, requestDoctorAccess } from '../access/access.service.js';
 import * as v from './profile.validators.js';
 import * as profiles from './profiles.service.js';
 
@@ -61,6 +61,12 @@ doctorMeRouter.patch(
 export const mrMeRouter = Router();
 mrMeRouter.use(authenticate, requireRole('mr'));
 mrMeRouter.put('/profile', validate({ body: v.mrProfileBody }), handle((req) => profiles.saveMrProfile(req.user, req.body, req)));
+/** Suggestions for the type-ahead Company Name / Division Name fields. */
+mrMeRouter.get(
+  '/registration-options',
+  validate({ query: v.registrationOptionsQuery }),
+  handle((req) => profiles.mrRegistrationOptions(req.query)),
+);
 
 export const receptionistMeRouter = Router();
 receptionistMeRouter.use(authenticate, requireRole('receptionist'));
@@ -75,3 +81,11 @@ receptionistMeRouter.put(
   handle((req) => profiles.saveReceptionistFinal(req.user, req.body, req)),
 );
 receptionistMeRouter.get('/doctors', handle((req) => doctorsForReceptionist(req.user._id)));
+/** Profile → Doctor Access: the receptionist's doctor links, and a request to one more doctor. */
+receptionistMeRouter.get('/doctor-access', handle((req) => myDoctorAccess(req.user._id)));
+receptionistMeRouter.post(
+  '/doctor-access',
+  authLimiter,
+  validate({ body: v.doctorAccessRequestBody }),
+  handle((req) => requestDoctorAccess(req.user, req.body, req)),
+);

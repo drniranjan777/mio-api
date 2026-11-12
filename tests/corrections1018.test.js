@@ -181,24 +181,26 @@ describe('Plans and Help Desk', () => {
     await plans.updateMany({ role: 'mr' }, { $set: { features: oldMr } });
     // Production had the MR list on the doctor plan too.
     await plans.updateOne({ code: 'doctor-lifetime-free' }, { $set: { features: oldMr } });
-    await plans.updateOne({ code: 'mr-monthly' }, { $set: { features: ['Our own wording'] } });
+    await plans.updateOne({ code: 'mr-quarterly' }, { $set: { features: ['Our own wording'] } });
     await db.collection('appsettings').insertOne({ key: 'support', value: { topics: ['Other'], emails: { mr: 'mr@miodoctors.com', doctor: 'doctor@miodoctors.com', receptionist: 'support@miodoctors.com' } } });
     await db.collection('migrations').deleteMany({});
     await db.collection('migrations').insertOne({ name: '20261004-001-locations-and-banners.js', appliedAt: new Date(0) });
     await db.collection('migrations').insertOne({ name: '20261015-001-ui-changes-oct-2026.js', appliedAt: new Date(1) });
+    // Later migrations count as applied, so up/down run the 18 Oct one only.
+    await db.collection('migrations').insertOne({ name: '20261111-001-plans-quarterly.js', appliedAt: new Date(2) });
 
     await runMigrations('up', { quiet: true });
     const features = async (code) => (await plans.findOne({ code })).features;
     assert.deepEqual(await features('mr-yearly'), MR_FEATURES);
     assert.deepEqual(await features('mr-free-2-months'), MR_FEATURES);
     assert.deepEqual(await features('doctor-lifetime-free'), DOCTOR_FEATURES);
-    assert.deepEqual(await features('mr-monthly'), ['Our own wording']);
+    assert.deepEqual(await features('mr-quarterly'), ['Our own wording']);
     const doctor = await login('doctor');
     assert.equal((await get(doctor, '/support').expect(200)).body.data.email, 'support@miodoctors.com');
 
     await runMigrations('down', { quiet: true });
     assert.deepEqual(await features('mr-yearly'), oldMr);
-    assert.deepEqual(await features('mr-monthly'), ['Our own wording']);
+    assert.deepEqual(await features('mr-quarterly'), ['Our own wording']);
     assert.equal((await get(doctor, '/support').expect(200)).body.data.email, 'doctor@miodoctors.com');
   });
 });
