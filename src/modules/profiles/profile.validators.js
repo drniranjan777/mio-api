@@ -20,6 +20,8 @@ const optMobile = z.union([mobile, z.literal('').transform(() => undefined)]).op
 const email = z.string().trim().toLowerCase().email();
 const pincode = z.string().trim().regex(/^\d{6}$/, 'Enter a 6-digit pin code');
 const url = z.string().trim().url().max(500);
+/** Optional link: the app sends "" for a blank field, so that is treated as not set. */
+const optUrl = z.union([url, z.literal('').transform(() => undefined)]).optional();
 const companyType = z.enum(['all', 'mnc', 'startup']);
 /**
  * One choice in the app's dropdown (All · MNC/Indian MNC only · Startup/New/PCD
@@ -36,11 +38,11 @@ export const PLACE_TYPES = Object.freeze(['hospital', 'clinic', 'both']);
 
 const social = z
   .object({
-    linkedin: url.optional(),
-    youtube: url.optional(),
-    whatsapp: mobile.optional(),
-    facebook: url.optional(),
-    instagram: url.optional(),
+    linkedin: optUrl,
+    youtube: optUrl,
+    whatsapp: optMobile,
+    facebook: optUrl,
+    instagram: optUrl,
   })
   .partial();
 
@@ -78,7 +80,7 @@ export const doctorProfileBody = z.object({
     locationType: req(40),
     /** "Clinic / Hospital Location Category": Within City / City Outskirts / Outside City Limits. */
     territoryClass: req(40),
-    gpsLink: url.optional(),
+    gpsLink: optUrl,
   }),
 });
 
@@ -187,7 +189,7 @@ export const receptionistProfileBody = z.object({
 
 export const receptionistFinalBody = z.object({
   territoryClass: req(40),
-  gpsLink: url.optional(),
+  gpsLink: optUrl,
   pharmacyName: opt(),
   pharmacistName: opt(),
   pharmacistMobile: optMobile,

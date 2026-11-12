@@ -32,6 +32,14 @@ const schema = z
     OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
     OTP_RESEND_SECONDS: z.coerce.number().int().nonnegative().default(45),
     OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+    /** Temporary: one fixed 4-digit PIN for every login while SMS_PROVIDER=dev. Ignored once a real gateway is on. */
+    STATIC_OTP: z.string().regex(/^\d{4}$/, 'STATIC_OTP must be exactly 4 digits').optional(),
+    /** dev = nothing is sent (dev mode / STATIC_OTP); msg91 = real SMS through MSG91. */
+    SMS_PROVIDER: z.enum(['dev', 'msg91']).default('dev'),
+    MSG91_AUTH_KEY: z.string().optional(),
+    /** DLT-approved OTP template (must contain ##OTP##). */
+    MSG91_OTP_TEMPLATE_ID: z.string().optional(),
+    MSG91_BASE_URL: z.string().url().default('https://control.msg91.com'),
     CORS_ORIGINS: z.string().default(''),
     TZ_OFFSET_MINUTES: z.coerce.number().int().default(330),
     /** Only the mock provider exists today; a real gateway plugs in behind PaymentProvider. */
@@ -59,6 +67,10 @@ const schema = z
   .refine((e) => !(e.NODE_ENV === 'production' && isClustered() && !e.REDIS_URL), {
     message: 'Cluster mode needs REDIS_URL so rate limits are shared by all workers (or run a single fork-mode process)',
     path: ['REDIS_URL'],
+  })
+  .refine((e) => e.SMS_PROVIDER !== 'msg91' || (e.MSG91_AUTH_KEY && e.MSG91_OTP_TEMPLATE_ID), {
+    message: 'SMS_PROVIDER=msg91 needs MSG91_AUTH_KEY and MSG91_OTP_TEMPLATE_ID',
+    path: ['SMS_PROVIDER'],
   })
   .refine((e) => !(e.NODE_ENV === 'production' && e.PAYMENT_PROVIDER === 'mock' && e.PAYMENTS_ENABLED), {
     message: 'The mock payment provider cannot be used in production (set PAYMENTS_ENABLED=false until a real gateway is added)',

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time MongoDB setup on the server, driven by backend/.env:
-#   bash /var/www/miodoctors/backend/deploy/setup-mongo-users.sh
+#   bash <api repo>/deploy/setup-mongo-users.sh
 #
 # - mio_app password: taken from MONGODB_URI in .env; if it still says CHANGE_ME,
 #   a strong one is generated and written into .env.
@@ -10,7 +10,7 @@
 # Run it BEFORE authentication is enabled (fresh install). Safe to re-run: it
 # stops if authentication is already on.
 set -euo pipefail
-ENV_FILE=/var/www/miodoctors/backend/.env
+ENV_FILE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.env
 
 [ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE — run: cp deploy/backend.env.production.example .env"; exit 1; }
 chmod 600 "$ENV_FILE"

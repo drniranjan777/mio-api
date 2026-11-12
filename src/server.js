@@ -5,6 +5,8 @@ import { logger } from './config/logger.js';
 import { closeRedis } from './config/redis.js';
 
 async function main() {
+  if (env.STATIC_OTP && env.SMS_PROVIDER === 'dev') logger.warn('STATIC_OTP is set: every mobile number can log in with the same PIN');
+  if (env.STATIC_OTP && env.SMS_PROVIDER !== 'dev') logger.warn(`STATIC_OTP is ignored (SMS_PROVIDER=${env.SMS_PROVIDER}); remove it from .env`);
   await connectDb(env.MONGODB_URI);
   const server = createApp().listen(env.PORT, env.HOST, () => {
     logger.info(

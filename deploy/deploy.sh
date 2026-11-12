@@ -1,33 +1,42 @@
 #!/usr/bin/env bash
 # Run on the server as the "deploy" user:
-#   bash /var/www/miodoctors/backend/deploy/deploy.sh          (pull + build + restart)
-#   SKIP_PULL=1 bash /var/www/miodoctors/backend/deploy/deploy.sh
+#   bash <api repo>/deploy/deploy.sh          (pull + build + restart)
+#   SKIP_PULL=1 bash <api repo>/deploy/deploy.sh
+# Paths: the API repo is the one this script lives in. The admin repo defaults to
+# a sibling folder named "admin"; set ADMIN_DIR in the API .env (or the
+# environment) for another layout. Uploads go to UPLOADS_DIR from .env.
 set -euo pipefail
-APP=/var/www/miodoctors
+API_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+env_value() { grep -E "^$1=" "$API_DIR/.env" 2>/dev/null | tail -n1 | cut -d= -f2- || true; }
+ADMIN_DIR=${ADMIN_DIR:-$(env_value ADMIN_DIR)}
+ADMIN_DIR=${ADMIN_DIR:-$(dirname "$API_DIR")/admin}
+UPLOADS_DIR=$(env_value UPLOADS_DIR)
+UPLOADS_DIR=${UPLOADS_DIR:-$(dirname "$API_DIR")/uploads}
+test -d "$ADMIN_DIR" || { echo "Admin repo not found at $ADMIN_DIR (set ADMIN_DIR in $API_DIR/.env)"; exit 1; }
 
 if [ "${SKIP_PULL:-0}" != "1" ]; then
   echo "==> Pull latest code"
-  git -C "$APP/backend" pull --ff-only
-  git -C "$APP/admin" pull --ff-only
+  git -C "$API_DIR" pull --ff-only
+  git -C "$ADMIN_DIR" pull --ff-only
 fi
 
 echo "==> API dependencies"
-cd "$APP/backend"
-test -f .env || { echo "Missing $APP/backend/.env (cp deploy/backend.env.production.example .env)"; exit 1; }
+cd "$API_DIR"
+test -f .env || { echo "Missing $API_DIR/.env (cp deploy/backend.env.production.example .env)"; exit 1; }
 chmod 600 .env
 npm ci --omit=dev --no-audit --no-fund
-mkdir -p "$APP/uploads"
+mkdir -p "$UPLOADS_DIR"
 
 echo "==> Database migrations"
 npm run --silent migrate
 
 echo "==> Admin panel build"
-cd "$APP/admin"
+cd "$ADMIN_DIR"
 npm ci --no-audit --no-fund
 npm run build
 
 echo "==> Restart API"
-cd "$APP/backend"
+cd "$API_DIR"
 # Fork ↔ cluster (REDIS_URL added/removed) can't be changed by a reload: PM2 keeps
 # the old mode. Recreate the process once in that case (a few seconds offline).
 WANT_MODE=$(node -p "require('./ecosystem.config.cjs').apps[0].exec_mode + '_mode'")

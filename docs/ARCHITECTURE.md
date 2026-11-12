@@ -144,7 +144,7 @@ Lists: `?page=&limit=&sort=&q=` + resource filters, server-side only.
 |---|---|
 | Auth | `POST /auth/otp/request` {mobile, role} · `POST /auth/otp/verify` {mobile, role, otp} → tokens · `POST /auth/refresh` · `POST /auth/logout` · `POST /auth/admin/login` |
 | Me | `GET /me` · `PATCH /me` · `DELETE /me` (delete account) |
-| Registration | `PUT /doctors/me/profile` · `PUT /doctors/me/final` · `PUT /mrs/me/profile` · `PUT /receptionists/me/profile` · `POST /uploads/photo` |
+| Registration | `PUT /doctors/me/profile` · `PUT /doctors/me/final` · `PUT /mrs/me/profile` · `PUT /receptionists/me/profile` · `PUT /me/photo` (raw image body) · `DELETE /me/photo` |
 | Doctors | `GET /doctors` (Master MCL: q, specialty, place, city) · `GET /doctors/:id` · `PATCH /doctors/me/availability` · `GET /doctors/:id/slots?date=` |
 | MCL (MR) | `GET /mrs/me/mcl` · `PUT /mrs/me/mcl/:doctorId` · `DELETE /mrs/me/mcl/:doctorId` · `GET /doctors` returns `inMcl` |
 | Receptionist access (doctor) | `GET /doctors/me/receptionists` · `POST /doctors/me/receptionists` · `PATCH /doctors/me/receptionists/:id` {status, permissions} · `DELETE /doctors/me/receptionists/:id` |
@@ -165,8 +165,11 @@ Lists: `?page=&limit=&sort=&q=` + resource filters, server-side only.
 - **OTP:** 4 digits (per PDF), HMAC-SHA256 hashed with a server pepper, 5-minute
   expiry, max 5 attempts, resend after 45 s (matches the app timer), rate limited
   per mobile and per IP. `OTP_DEV_MODE=true` returns the code in the response
-  (never in production). SMS goes through an `SmsProvider` interface; a real
-  provider is added later without touching auth logic.
+  (never in production). SMS goes through an `SmsProvider` interface chosen by
+  `SMS_PROVIDER`: `dev` (nothing sent) or `msg91` (MSG91 OTP API v5 with our own
+  code; needs `MSG91_AUTH_KEY` + a DLT-approved `MSG91_OTP_TEMPLATE_ID` containing
+  `##OTP##`). A failed send returns 502 `SMS_FAILED` and the OTP is discarded.
+  `STATIC_OTP` (temporary, one PIN for every number) only works with `dev`.
 - **Tokens:** access JWT (15 min; `sub`, `role`, `tv` = tokenVersion) + refresh
   token (random 256-bit, stored hashed, 30 days, **rotated on every use**, reuse of
   a rotated token revokes the whole family). Logout revokes the refresh token;
@@ -294,7 +297,7 @@ switched from `SampleData` to repositories with loading / error / empty states.
     notification switch will control push delivery once FCM exists, and the app
     UI is English-only until translations are provided.
 5. **Payments:** mock provider; Razorpay (or other) added later behind `PaymentProvider`.
-6. **SMS:** dev-mode OTP; provider added later behind `SmsProvider`.
+6. **SMS:** MSG91 behind `SmsProvider` (`SMS_PROVIDER=msg91`); dev mode / `STATIC_OTP` until keys are set.
 7. **Delete account:** soft delete + anonymisation (keeps appointment history
    consistent for the other party), tokens revoked.
 
